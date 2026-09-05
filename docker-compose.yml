@@ -1,0 +1,54 @@
+# Coolify "Docker Compose" resource for nappa85/cah_bot
+#
+# WHY THIS SHAPE:
+# The bot's source hardcodes its DB connection string as:
+#   postgres://postgres:postgres@postgres/cah_bot
+# It does NOT read a DATABASE_URL env var. That means whatever runs the
+# bot must be able to resolve the hostname "postgres" to the Postgres
+# container, with that exact user/password/db name. Docker Compose gives
+# every service a DNS entry matching its service name for free, so naming
+# the db service "postgres" here satisfies the hardcoded string without
+# touching the bot's Rust source.
+#
+# The official postgres image auto-runs any .sql file dropped into
+# /docker-entrypoint-initdb.d/ the FIRST time it starts on an empty data
+# volume — so mounting schema.postgres.sql there replaces the manual
+# "psql -f schema.sql" step, and only runs once (safe on restarts/redeploys).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cah_bot
+    volumes:
+      - cah_bot_pgdata:/var/lib/postgresql/data
+      - ./schema.postgres.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  cah_bot:
+    # NOTE: the upstream Dockerfile does `git clone` of nappa85/cah_bot
+    # INSIDE the build itself and ignores the build context entirely.
+    # That means this build context is irrelevant to what actually gets
+    # compiled, AND your locally-downloaded cah-cards-full.json is never
+    # read from disk or from a volume — see the chat answer for why, and
+    # for what to do if you want to swap in your own card pack file.
+    build:
+      context: https://github.com/nappa85/cah_bot.git
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_NAME: ${BOT_NAME}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  cah_bot_pgdata:
