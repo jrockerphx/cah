@@ -1,4 +1,8 @@
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, StreamTrait};
+use chrono::Utc;
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
+    StreamTrait,
+};
 use tgbot::{
     api::Client,
     types::{ParseMode, ReplyParameters, SendMessage, User},
@@ -13,8 +17,6 @@ use crate::{
 pub enum CloseError {
     #[error("You're not the game owner, only {0} can use this command")]
     NotOwner(String),
-    #[error("You can't close an unstarted game")]
-    Unstarted,
     #[error(transparent)]
     Chat(#[from] chat::ChatError),
 }
@@ -52,13 +54,29 @@ where
         return Ok(Err(CloseError::NotOwner(owner.tg_link())));
     }
 
-    if chat.turn <= 1 {
-        return Ok(Err(CloseError::Unstarted));
-    }
+    let msg = if chat.turn <= 1 {
+        // The game never got past the first hand (e.g. only the owner ever
+        // joined). chat.close() tallies points and bails with
+        // ChatError::Empty when nobody has scored yet, so the old code just
+        // refused to close at all here -- which left the owner stuck:
+        // /start won't re-add someone who's already a player on this chat,
+        // and /close wouldn't end it either. End it directly instead; there
+        // are no scores to tally yet, so there's nothing chat.close() would
+        // have done besides error out.
+        chat::ActiveModel {
+            id: ActiveValue::Set(chat.id),
+            end_date: ActiveValue::Set(Some(Utc::now().naive_utc())),
+            ..Default::default()
+        }
+        .update(conn)
+        .await?;
 
-    let msg = match chat.close(conn).await? {
-        Ok(msg) => msg,
-        Err(e) => return Ok(Err(CloseError::from(e))),
+        "Game closed before it started \\(no rounds played\\)".to_string()
+    } else {
+        match chat.close(conn).await? {
+            Ok(msg) => msg,
+            Err(e) => return Ok(Err(CloseError::from(e))),
+        }
     };
 
     client
