@@ -67,6 +67,15 @@ services:
       # once you're ready to cut over (see cah_web's own build note below
       # about not running both flows against a live game at once).
       WEBAPP_URL: ${WEBAPP_URL:-}
+      # Without this, `docker logs` on cah_bot is permanently silent, even
+      # across real failures. main.rs calls tracing_subscriber::fmt::init(),
+      # which reads RUST_LOG at startup -- with it unset, the env-filter has
+      # zero directives and swallows EVERY event, including the warn!() in
+      # bot/mod.rs's clear_error() that's supposed to tell us when Telegram
+      # rejects a message with a 400 (bad Markdown, closed topic, etc) and
+      # the bot silently eats it. This is why chasing the missing-confirmation
+      # bug produced nothing from the logs -- we were flying fully blind.
+      RUST_LOG: ${RUST_LOG:-cah_bot=info,warn}
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,7 +113,13 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres/cah_bot
       BOT_TOKEN: ${BOT_TOKEN}
-      REQUIRE_TELEGRAM_AUTH: "false"
+      # Was hardcoded to the literal string "true" before -- meaning
+      # flipping this in Coolify's Environment Variables panel did
+      # *nothing*, since the compose file never actually referenced that
+      # variable. Wired to a real substitution now, defaulting to true
+      # (locked down) when unset, so setting REQUIRE_TELEGRAM_AUTH=false in
+      # Coolify's UI actually takes effect on the next redeploy.
+      REQUIRE_TELEGRAM_AUTH: ${REQUIRE_TELEGRAM_AUTH:-true}
     depends_on:
       postgres:
         condition: service_healthy
