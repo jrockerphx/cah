@@ -40,7 +40,20 @@ async fn main() -> Result<(), Error> {
     // "https://cah.example.com"). When unset, every "Open cards hand"
     // button falls back to the original inline-query flow exactly as
     // before -- this is purely additive.
-    let webapp_url = env::var("WEBAPP_URL").ok();
+    //
+    // Filtering out an empty string matters: Docker Compose's
+    // `${WEBAPP_URL:-}` substitution always sets the env var, just to ""
+    // when nothing's configured upstream -- it never leaves it unset. That
+    // turned into a silent, live bug: `env::var(..).ok()` gave `Some("")`,
+    // so bot::parser::play_button() took the "webapp configured" branch and
+    // built a Web App button URL of "?chat=<id>" -- a URL with no host.
+    // Telegram rejects the WHOLE message (text included, not just the
+    // button) with a 400 for that, and bot::clear_error() treats every 400
+    // as safe to ignore, so /start and /status silently dropped their
+    // entire response, confirmation text and all, with no visible error.
+    let webapp_url = env::var("WEBAPP_URL")
+        .ok()
+        .filter(|url| !url.is_empty());
 
     entities::pack::init(&conn).await?;
 
