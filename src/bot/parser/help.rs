@@ -1,0 +1,41 @@
+use tgbot::{
+    api::Client,
+    types::{ParseMode, ReplyParameters, SendMessage},
+};
+
+use crate::{entities::chat, Error};
+
+pub async fn execute(
+    client: &Client,
+    message_id: i64,
+    chat: &chat::Model,
+    bot_name: &str,
+    webapp_url: Option<&str>,
+) -> Result<(), Error> {
+    client
+        .execute(
+            SendMessage::new(
+                chat.telegram_id,
+                format!(
+                    "[Cards Against Humanity Bot](https://github\\.com/nappa85/cah\\_bot/)
+
+/close \\- close the game and get a winner
+/help \\- this message
+/start \\- start or join the game in this chat
+/settings \\- change game setting
+/status \\- show game status
+/rank \\- show players ranking
+
+To view you hand and choose a card for this game use the inline command `{bot_name} {}`
+                ",
+                    chat.id
+                ),
+            )
+            .with_reply_parameters(ReplyParameters::new(message_id))
+            .with_reply_markup([[super::play_button(webapp_url, chat.id)]])
+            .with_parse_mode(ParseMode::MarkdownV2),
+        )
+        .await?;
+
+    Ok(())
+}

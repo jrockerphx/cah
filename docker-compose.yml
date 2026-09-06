@@ -31,21 +31,55 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      # Gives Postgres up to 2 extra minutes before the healthcheck can fail
+      # it. On a cold start, if the cah_bot image is also being pulled/built
+      # at the same time, disk I/O contention can push init past the plain
+      # 50s window (5s x 10 retries) and Coolify tears the stack down with
+      # "dependency failed to start: unhealthy" -- happened on first deploy.
+      start_period: 120s
 
   cah_bot:
-    # NOTE: the upstream Dockerfile does `git clone` of nappa85/cah_bot
-    # INSIDE the build itself and ignores the build context entirely.
-    # That means this build context is irrelevant to what actually gets
-    # compiled, AND your locally-downloaded cah-cards-full.json is never
-    # read from disk or from a volume — see the chat answer for why, and
-    # for what to do if you want to swap in your own card pack file.
+    # CHANGED: now points at YOUR repo instead of nappa85/cah_bot upstream
+    # — same "cah" repo docker-compose.yml and schema.postgres.sql already
+    # live in. Drop the cah_bot-fork.zip's contents (src/, Cargo.toml,
+    # Cargo.lock, docker/, webapp/, cah-cards-full.json, .gitignore) into
+    # this repo's root alongside the files already here, commit, push.
+    #
+    # Also fixed: the fork's Dockerfile now builds from this context
+    # directly instead of re-cloning nappa85/cah_bot inside the build step
+    # — that upstream quirk meant your build context (and any fork) was
+    # silently ignored before. See the Dockerfile's own comment.
     build:
-      context: https://github.com/nappa85/cah_bot.git
+      context: https://github.com/jrockerphx/cah.git
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       BOT_NAME: ${BOT_NAME}
+      # Leave blank until cah_web has a real https:// domain from Coolify —
+      # unset/empty means the bot falls back to the original inline-query
+      # "Open cards hand" flow exactly as it does today. Only fill this in
+      # once you're ready to cut over (see cah_web's own build note below
+      # about not running both flows against a live game at once).
+      WEBAPP_URL: ${WEBAPP_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # New: the HTML5 UI's backend. Reads/writes the exact same Postgres
+  # tables cah_bot uses — see cah-webapp-api's own README (from chat) for
+  # the endpoints and the gotchas before pointing real games at it.
+  # Needs its own Coolify domain with a real TLS cert; Telegram requires
+  # https:// for WebApp button URLs, unlike the bot's plain long-polling.
+  cah_web:
+    build:
+      context: https://github.com/jrockerphx/cah.git
+      dockerfile: webapp/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres/cah_bot
+      BOT_TOKEN: ${BOT_TOKEN}
+      REQUIRE_TELEGRAM_AUTH: "true"
     depends_on:
       postgres:
         condition: service_healthy
