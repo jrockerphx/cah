@@ -69,13 +69,29 @@ services:
   # New: the HTML5 UI's backend. Reads/writes the exact same Postgres
   # tables cah_bot uses — see cah-webapp-api's own README (from chat) for
   # the endpoints and the gotchas before pointing real games at it.
-  # Needs its own Coolify domain with a real TLS cert; Telegram requires
-  # https:// for WebApp button URLs, unlike the bot's plain long-polling.
+  #
+  # PORT: server.js listens on 3001 inside the container (Dockerfile EXPOSE
+  # 3001, overridable via a PORT env var if you ever need to change it).
+  # Coolify's own Traefik already owns 80/443 on this host, and you're
+  # routing this through your own nginx gatekeeper box instead of Coolify's
+  # domain/Traefik/Let's Encrypt flow — so the "ports:" line below publishes
+  # 3001 straight to the host.
+  #
+  # TLS: server.js now terminates HTTPS itself, using a self-signed cert
+  # baked into the image (webapp/certs/), to match nginx's usual "always
+  # proxy_pass https:// to the backend" pattern. nginx's proxy_pass target
+  # is https://192.168.0.206:3001 — remember to set `proxy_ssl_verify off;`
+  # (or your usual equivalent) on that location block, since nothing signed
+  # this cert and nginx will otherwise refuse it. The real public https://
+  # URL Telegram needs for the WebApp button is still the one nginx serves;
+  # this cert only covers the nginx→cah_web hop over your LAN.
   cah_web:
     build:
       context: https://github.com/jrockerphx/cah.git
       dockerfile: webapp/Dockerfile
     restart: unless-stopped
+    ports:
+      - "3001:3001"
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres/cah_bot
       BOT_TOKEN: ${BOT_TOKEN}
