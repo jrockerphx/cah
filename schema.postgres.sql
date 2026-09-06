@@ -37,7 +37,11 @@ CREATE TABLE cards (
     pack_id INTEGER NOT NULL,
     color CHAR(5) NOT NULL,
     pick INTEGER DEFAULT NULL,
-    text VARCHAR(255) NOT NULL
+    -- TEXT, not VARCHAR(255): the full JAH card set (cah-cards-full.json,
+    -- baked into the bot's binary via include_str!) has card text longer
+    -- than 255 chars. Postgres errors 22001 "value too long" on import
+    -- with the narrower type -- this bit us live on first deploy.
+    text TEXT NOT NULL
 );
 
 CREATE TABLE hands (
