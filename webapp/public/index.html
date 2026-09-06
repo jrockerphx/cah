@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Things You Shouldn't Even Think (but we're going to say them anyway)</title>
+<title>Things You Shouldn't Say</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
@@ -201,7 +201,7 @@
 <body>
 <div class="app">
   <div class="masthead">
-    <h1>Thing You Shouldn't Say</h1>
+    <h1>Things You Shouldn't Say</h1>
     <span class="badge" id="liveBadge">LIVE</span>
   </div>
 
@@ -239,12 +239,19 @@
 
   const $ = (id) => document.getElementById(id);
 
-  // Dev connection bar only matters outside Telegram (LAN browser testing).
-  // REQUIRE_TELEGRAM_AUTH must be set to "false" on the server for the
-  // ?user= fallback below to actually be accepted -- see server.js.
+  // Dev connection bar: always shown outside Telegram (LAN browser testing,
+  // REQUIRE_TELEGRAM_AUTH must be "false" for the ?user= fallback below to
+  // be accepted -- see server.js), and ALSO shown as a rescue hatch inside
+  // Telegram if we somehow got opened without a ?chat= in the URL -- e.g.
+  // Telegram's WebView reusing/caching an earlier session for this bot's
+  // Mini App. Without this fallback there was previously no way to recover:
+  // the "enter a chat id" message had nowhere to actually enter one.
   if (!hasTelegramAuth) {
-    $('devBar').hidden = false;
     $('liveBadge').textContent = 'DEV MODE';
+  }
+  if (!hasTelegramAuth || !chatId) {
+    $('devBar').hidden = false;
+    $('devUser').hidden = hasTelegramAuth; // real auth already carries who you are
     $('devChat').value = chatId;
     $('devUser').value = devUserId;
     $('devGo').addEventListener('click', () => {
@@ -252,7 +259,7 @@
       devUserId = $('devUser').value.trim();
       const url = new URL(location.href);
       url.searchParams.set('chat', chatId);
-      url.searchParams.set('user', devUserId);
+      if (!hasTelegramAuth) url.searchParams.set('user', devUserId);
       history.replaceState(null, '', url);
       poll();
     });
@@ -275,7 +282,13 @@
 
   async function fetchState() {
     if (!chatId) {
-      showMessage('Enter a chat id above to connect to a real game.', false);
+      // Debug breadcrumb: this tells us whether Telegram actually dropped
+      // the ?chat= we put in the button's URL, or handed us something else
+      // entirely (e.g. a cached/reused WebView from an earlier open).
+      showMessage(
+        'Enter a chat id above to connect to a real game. (debug: url=' + location.href + ')',
+        false,
+      );
       return;
     }
     const url = apiUrl('/api/state');
