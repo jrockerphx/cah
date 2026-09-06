@@ -104,7 +104,7 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres/cah_bot
       BOT_TOKEN: ${BOT_TOKEN}
-      REQUIRE_TELEGRAM_AUTH: "true"
+      REQUIRE_TELEGRAM_AUTH: "false"
     depends_on:
       postgres:
         condition: service_healthy
