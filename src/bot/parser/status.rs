@@ -4,7 +4,7 @@ use futures_util::TryStreamExt;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, StreamTrait};
 use tgbot::{
     api::Client,
-    types::{ParseMode, ReplyParameters, SendMessage},
+    types::{ParseMode, ReplyParameters, SendMessage, User},
 };
 
 use crate::{
@@ -29,6 +29,7 @@ pub enum StatusError {
 pub async fn execute<C>(
     client: &Client,
     conn: &C,
+    user: &User,
     message_id: i64,
     chat: &chat::Model,
     webapp_url: Option<&str>,
@@ -130,10 +131,21 @@ where
         .execute(
             SendMessage::new(chat.telegram_id, msg)
                 .with_reply_parameters(ReplyParameters::new(message_id))
-                .with_reply_markup([[super::play_button(webapp_url, chat.id)]])
+                .with_reply_markup([[super::play_button(chat.id)]])
                 .with_parse_mode(ParseMode::MarkdownV2),
         )
         .await?;
+
+    // Whoever asked clearly wants to check in -- DM them the real Mini App
+    // button (group messages can't carry a web_app button).
+    super::dm_player_webapp(
+        client,
+        webapp_url,
+        chat.id,
+        i64::from(user.id),
+        "Here's your hand",
+    )
+    .await;
 
     Ok(Ok(()))
 }

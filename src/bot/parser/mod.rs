@@ -8,9 +8,10 @@ use tgbot::{
         ReplyParameters, SendMessage, User, WebAppInfo,
     },
 };
+use tracing::warn;
 
 use crate::{
-    entities::{chat, hand},
+    entities::{chat, hand, player},
     Error,
 };
 
@@ -23,26 +24,96 @@ mod settings;
 mod start;
 mod status;
 
-/// Builds the "Open cards hand" button. When `webapp_url` is set, this opens
-/// the Mini App front-end instead of the old inline-query flow -- the chat's
-/// internal id is passed as a query param so the front-end knows which game
-/// it's looking at (inline mode has the same problem and solves it the same
-/// way, per the upstream README's "Caveats" section).
-pub(crate) fn play_button(webapp_url: Option<&str>, chat_id: i32) -> InlineKeyboardButton {
-    match webapp_url {
-        Some(base) => {
-            let sep = if base.contains('?') { '&' } else { '?' };
-            InlineKeyboardButton::for_web_app(
-                "Open cards hand",
-                WebAppInfo {
-                    url: format!("{base}{sep}chat={chat_id}"),
-                },
-            )
-        }
-        None => InlineKeyboardButton::for_switch_inline_query_current_chat(
-            "Open cards hand",
-            chat_id.to_string(),
-        ),
+/// Builds the "Open cards hand" button attached to the GROUP status
+/// message. This always uses switch_inline_query, never the Mini App.
+///
+/// Telegram documents `web_app` on InlineKeyboardButton as "available only
+/// in private chats between a user and the bot"
+/// (https://core.telegram.org/bots/api#inlinekeyboardbutton). Attaching one
+/// to a message sent to a GROUP gets the whole message (text included)
+/// rejected with a 400, which bot::clear_error() then treats as safe to
+/// ignore -- that's exactly the bug that made /start and /status go
+/// silent the first time WEBAPP_URL got set to anything. The real Mini App
+/// button is DM'd to individual players instead -- see
+/// `dm_all_players_webapp` / `dm_player_webapp` below.
+pub(crate) fn play_button(chat_id: i32) -> InlineKeyboardButton {
+    InlineKeyboardButton::for_switch_inline_query_current_chat(
+        "Open cards hand",
+        chat_id.to_string(),
+    )
+}
+
+/// DMs a single player the real Mini App button. `telegram_id` here is
+/// always a player's own Telegram user id -- in Telegram, a private chat's
+/// id IS that same user id, so this is the one context where `web_app`
+/// buttons are actually legal.
+///
+/// Errors are swallowed on purpose: the likely failure is "Forbidden: bot
+/// can't initiate conversation with a user", which just means this player
+/// has never opened a private chat with the bot. That's not fatal -- the
+/// group message still carries the switch_inline_query fallback button, so
+/// the game keeps moving for everyone else either way.
+async fn dm_webapp_button(client: &Client, base: &str, chat_id: i32, telegram_id: i64, text: &str) {
+    let sep = if base.contains('?') { '&' } else { '?' };
+    if let Err(e) = client
+        .execute(
+            SendMessage::new(telegram_id, text)
+                .with_reply_markup([[InlineKeyboardButton::for_web_app(
+                    "Open cards hand",
+                    WebAppInfo {
+                        url: format!("{base}{sep}chat={chat_id}"),
+                    },
+                )]])
+                .with_parse_mode(ParseMode::MarkdownV2),
+        )
+        .await
+    {
+        warn!(
+            "Couldn't DM player {telegram_id} their webapp hand link \
+             (they probably haven't opened a private chat with the bot yet): {e}"
+        );
+    }
+}
+
+/// DMs every player in `chat` the real Mini App button, when one is
+/// configured. Used at the moments a new round actually starts: at that
+/// point everyone either has cards to submit or (the judge) will soon need
+/// to pick a winner, and the webapp itself renders the right view per role
+/// once it authenticates the opener via Telegram's initData.
+pub(crate) async fn dm_all_players_webapp<C>(
+    client: &Client,
+    conn: &C,
+    webapp_url: Option<&str>,
+    chat: &chat::Model,
+    text: &str,
+) -> Result<(), Error>
+where
+    C: ConnectionTrait,
+{
+    let Some(base) = webapp_url else {
+        return Ok(());
+    };
+    let players = player::Entity::find()
+        .filter(player::Column::ChatId.eq(chat.id))
+        .all(conn)
+        .await?;
+    for player in players {
+        dm_webapp_button(client, base, chat.id, player.telegram_id, text).await;
+    }
+    Ok(())
+}
+
+/// DMs one specific player (e.g. whoever just ran /status, or the judge once
+/// everyone else has submitted) the real Mini App button.
+pub(crate) async fn dm_player_webapp(
+    client: &Client,
+    webapp_url: Option<&str>,
+    chat_id: i32,
+    telegram_id: i64,
+    text: &str,
+) {
+    if let Some(base) = webapp_url {
+        dm_webapp_button(client, base, chat_id, telegram_id, text).await;
     }
 }
 
@@ -90,9 +161,11 @@ where
                         .await?
                         .map_err(BotError::from)
                 }
-                Some("/status") => status::execute(client, conn, message_id, &chat, webapp_url)
-                    .await?
-                    .map_err(BotError::from),
+                Some("/status") => {
+                    status::execute(client, conn, user, message_id, &chat, webapp_url)
+                        .await?
+                        .map_err(BotError::from)
+                }
                 Some("/rank") => Ok(rank::execute(client, conn, message_id, &chat).await?),
                 Some("/close") => close::execute(client, conn, user, message_id, &chat)
                     .await?

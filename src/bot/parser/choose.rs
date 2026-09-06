@@ -132,10 +132,21 @@ where
     client
         .execute(
             SendMessage::new(chat.telegram_id, msg)
-                .with_reply_markup([[super::play_button(webapp_url, chat.id)]])
+                .with_reply_markup([[super::play_button(chat.id)]])
                 .with_parse_mode(ParseMode::MarkdownV2),
         )
         .await?;
+
+    // New round -- DM everyone the real Mini App button (group messages
+    // can't carry a web_app button, see play_button's doc).
+    super::dm_all_players_webapp(
+        client,
+        conn,
+        webapp_url,
+        &chat,
+        "New round started, open your hand to play",
+    )
+    .await?;
 
     Ok(Ok(()))
 }
@@ -216,10 +227,21 @@ where
         client
             .execute(
                 SendMessage::new(chat.telegram_id, msg)
-                    .with_reply_markup([[super::play_button(webapp_url, chat.id)]])
+                    .with_reply_markup([[super::play_button(chat.id)]])
                     .with_parse_mode(ParseMode::MarkdownV2),
             )
             .await?;
+
+        // Only the judge has anything to do now -- DM just them the real
+        // Mini App button (group messages can't carry a web_app button).
+        super::dm_player_webapp(
+            client,
+            webapp_url,
+            chat.id,
+            judge.telegram_id,
+            "All players have submitted, open the app to pick the winner",
+        )
+        .await;
     }
 
     Ok(Ok(()))

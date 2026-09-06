@@ -120,11 +120,23 @@ where
                     client
                         .execute(
                             SendMessage::new(chat.telegram_id, msg)
-                                .with_reply_markup([[super::play_button(webapp_url, chat.id)]])
+                                .with_reply_markup([[super::play_button(chat.id)]])
                                 .with_reply_parameters(ReplyParameters::new(message_id))
                                 .with_parse_mode(ParseMode::MarkdownV2),
                         )
                         .await?;
+
+                    // Toggling Rando Carlissian just kicked off a round --
+                    // DM everyone the real Mini App button (group messages
+                    // can't carry a web_app button).
+                    super::dm_all_players_webapp(
+                        client,
+                        conn,
+                        webapp_url,
+                        &chat,
+                        "New round started, open your hand to play",
+                    )
+                    .await?;
                 }
             }
             action if action.starts_with("all") => {

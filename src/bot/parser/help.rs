@@ -10,7 +10,9 @@ pub async fn execute(
     message_id: i64,
     chat: &chat::Model,
     bot_name: &str,
-    webapp_url: Option<&str>,
+    // Group message -- can't carry a web_app button, see play_button's doc.
+    // Kept for signature symmetry with the other command handlers.
+    _webapp_url: Option<&str>,
 ) -> Result<(), Error> {
     client
         .execute(
@@ -32,7 +34,7 @@ To view you hand and choose a card for this game use the inline command `{bot_na
                 ),
             )
             .with_reply_parameters(ReplyParameters::new(message_id))
-            .with_reply_markup([[super::play_button(webapp_url, chat.id)]])
+            .with_reply_markup([[super::play_button(chat.id)]])
             .with_parse_mode(ParseMode::MarkdownV2),
         )
         .await?;

@@ -73,6 +73,9 @@ where
     .update(&txn)
     .await?;
 
+    // enough players to actually start a round -- see the DM below.
+    let round_started = chat.players + chat.rando_carlissian as i32 > 2;
+
     let msg = format!(
         "Player created{}\n\n{}",
         match chat.players {
@@ -81,7 +84,7 @@ where
             3 => Cow::Owned(format!(", you're the third one on this game, you can now play freely without {}", crate::RANDO_CARLISSIAN)),
             _ => Cow::Borrowed(""),
         },
-        if chat.players + chat.rando_carlissian as i32 > 2 {
+        if round_started {
             match chat.reset(&txn).await? {
                 Ok(msg) => msg,
                 Err(e) => return Ok(Err(StartError::from(e))),
@@ -95,11 +98,26 @@ where
     client
         .execute(
             SendMessage::new(chat.telegram_id, msg)
-                .with_reply_markup([[super::play_button(webapp_url, chat.id)]])
+                .with_reply_markup([[super::play_button(chat.id)]])
                 .with_reply_parameters(ReplyParameters::new(message_id))
                 .with_parse_mode(ParseMode::MarkdownV2),
         )
         .await?;
+
+    // Round just started for real -- everyone (non-judges to submit white
+    // cards, the judge to wait on them) can now open their hand in the
+    // actual Mini App, DM'd individually since Telegram only allows
+    // `web_app` buttons in private chats (see play_button's doc).
+    if round_started {
+        super::dm_all_players_webapp(
+            client,
+            conn,
+            webapp_url,
+            &chat,
+            "New round started, open your hand to play",
+        )
+        .await?;
+    }
 
     Ok(Ok(()))
 }
