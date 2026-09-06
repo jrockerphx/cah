@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Thing You Shouldn't Say</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  /* Same design system as the mock prototype -- felt table, flip cards.
+     See that file's own comment block for the full rationale; this is the
+     real thing wired to /api/state, /api/play, /api/choose instead of
+     canned sample data. */
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;0,700;1,500&family=Archivo:wght@700;800;900&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+  :root {
+    --felt: #171319; --felt-2: #1d1821; --card-black: #0c0b10; --ivory: #f4efe4;
+    --ink: #18151d; --plum: #3a2f45; --plum-dark: #241d2c; --gold: #d9a441;
+    --gold-deep: #b98328; --muted: #9a8fa3; --line: rgba(244, 239, 228, 0.14);
+    --shadow: rgba(0, 0, 0, 0.55); --bad: #c26b4f;
+    --font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+    --font-card: 'Archivo', 'Arial Narrow', Helvetica, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--felt);
+    background-image:
+      radial-gradient(ellipse 90% 60% at 50% -10%, rgba(217, 164, 65, 0.08), transparent 60%),
+      radial-gradient(ellipse 140% 100% at 50% 110%, rgba(0, 0, 0, 0.6), transparent 60%);
+    color: var(--ivory); font-family: var(--font-card); min-height: 100vh;
+    margin: 0; padding: 24px 16px 40px; display: flex; justify-content: center;
+  }
+  .app { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 16px; }
+
+  .masthead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .masthead h1 {
+    font-family: var(--font-display); font-weight: 700; font-style: italic;
+    font-size: 1.4rem; margin: 0; letter-spacing: 0.01em; text-wrap: balance;
+  }
+  .badge {
+    font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.08em;
+    color: var(--felt); background: var(--gold); padding: 3px 7px; border-radius: 3px;
+    white-space: nowrap; transform: translateY(-2px); cursor: default;
+  }
+
+  /* dev-only connection bar -- only shown when we're NOT inside Telegram
+     (no initData available), so you can punch in a chat id / your telegram
+     user id from a plain browser on the LAN to test against a real game. */
+  .devbar {
+    display: flex; gap: 6px; font-family: var(--font-mono); font-size: 0.72rem;
+    background: var(--felt-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px;
+  }
+  .devbar input {
+    flex: 1; min-width: 0; background: var(--card-black); color: var(--ivory);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-family: inherit;
+  }
+  .devbar button {
+    font-family: inherit; background: var(--gold); color: var(--ink); border: none;
+    border-radius: 6px; padding: 6px 10px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+
+  .readout {
+    display: flex; align-items: center; gap: 10px; font-family: var(--font-mono);
+    font-size: 0.72rem; color: var(--muted); letter-spacing: 0.04em;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    padding: 9px 2px; flex-wrap: wrap;
+  }
+  .readout .turn { color: var(--ivory); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .readout .role { margin-left: auto; color: var(--gold); }
+
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+
+  .msg {
+    font-family: var(--font-display); font-style: italic; font-size: 0.98rem;
+    color: var(--muted); text-align: center; text-wrap: balance; padding: 20px 8px;
+  }
+  .msg.err { color: var(--bad); }
+
+  .black-card {
+    position: relative; width: 100%; max-width: 320px; aspect-ratio: 5 / 4;
+    background: var(--card-black); border-radius: 14px; padding: 22px;
+    display: flex; align-items: flex-start; justify-content: flex-start;
+    box-shadow: 0 18px 34px var(--shadow), 0 2px 0 rgba(255,255,255,0.03) inset;
+    transform: rotate(-1.6deg); animation: settle 0.4s ease both;
+  }
+  .black-card p {
+    font-family: var(--font-card); font-weight: 800; font-size: 1.28rem;
+    line-height: 1.28; color: var(--ivory); margin: 0; text-wrap: balance;
+  }
+  .black-card .pick-tag {
+    position: absolute; bottom: 16px; right: 18px; font-family: var(--font-mono);
+    font-size: 0.66rem; letter-spacing: 0.08em; color: var(--gold);
+    border: 1px solid var(--gold); padding: 3px 7px; border-radius: 3px;
+  }
+  @keyframes settle {
+    from { opacity: 0; transform: rotate(-1.6deg) translateY(10px) scale(0.97); }
+    to   { opacity: 1; transform: rotate(-1.6deg) translateY(0) scale(1); }
+  }
+
+  .hand-label {
+    font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em;
+    color: var(--muted); text-transform: uppercase; text-align: center;
+  }
+  .hand-scroll {
+    display: flex; gap: 0; padding: 18px 26px 10px; overflow-x: auto;
+    overflow-y: visible; scroll-snap-type: x proximity;
+  }
+  .hand-scroll::-webkit-scrollbar { height: 0; }
+  .white-card {
+    flex: 0 0 auto; width: 128px; aspect-ratio: 5 / 6.4; background: var(--ivory);
+    color: var(--ink); border-radius: 10px; padding: 13px 12px; font-family: var(--font-card);
+    font-weight: 700; font-size: 0.86rem; line-height: 1.22; box-shadow: 0 10px 20px var(--shadow);
+    cursor: pointer; margin-left: -34px;
+    transition: transform 0.22s cubic-bezier(.2,.8,.3,1), box-shadow 0.22s ease, margin-left 0.22s ease;
+    scroll-snap-align: center; border: 2px solid transparent; text-wrap: balance;
+  }
+  .hand-scroll .white-card:first-child { margin-left: 0; }
+  .white-card.selected {
+    transform: translateY(-22px) scale(1.04); box-shadow: 0 20px 30px var(--shadow);
+    border-color: var(--gold); z-index: 5;
+  }
+  .white-card.disabled { opacity: 0.4; pointer-events: none; }
+
+  .play-bar { position: sticky; bottom: 0; display: flex; justify-content: center; padding-top: 4px; }
+  .play-btn {
+    font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.03em;
+    background: var(--gold); color: var(--ink); border: none; border-radius: 999px;
+    padding: 12px 22px; font-weight: 600; cursor: pointer; box-shadow: 0 8px 20px rgba(217,164,65,0.35);
+    transition: transform 0.15s ease, opacity 0.15s ease, background 0.15s ease;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .play-btn:hover { background: var(--gold-deep); }
+  .play-btn[disabled] { opacity: 0; pointer-events: none; transform: translateY(8px); }
+
+  .played-note {
+    font-family: var(--font-display); font-style: italic; font-size: 0.86rem;
+    color: var(--muted); text-align: center; min-height: 1.4em;
+  }
+
+  .judge-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 4px 2px 8px; }
+  .flip-card { perspective: 1000px; aspect-ratio: 5 / 6.6; }
+  .flip-inner {
+    position: relative; width: 100%; height: 100%; transform-style: preserve-3d;
+    transition: transform 0.55s cubic-bezier(.3,.9,.3,1);
+  }
+  .flip-card.flipped .flip-inner { transform: rotateY(180deg); }
+  .flip-face {
+    position: absolute; inset: 0; border-radius: 10px; backface-visibility: hidden;
+    display: flex; align-items: center; justify-content: center; padding: 12px;
+    box-shadow: 0 10px 20px var(--shadow);
+  }
+  .flip-back {
+    background: repeating-linear-gradient(45deg, var(--plum) 0 6px, var(--plum-dark) 6px 12px);
+    border: 2px solid rgba(217,164,65,0.35); cursor: pointer;
+  }
+  .flip-back .emblem { width: 30px; height: 30px; border: 2px solid var(--gold); transform: rotate(45deg); opacity: 0.7; }
+  .flip-front {
+    background: var(--ivory); color: var(--ink); transform: rotateY(180deg);
+    font-family: var(--font-card); font-weight: 700; font-size: 0.84rem; line-height: 1.24;
+    text-align: left; align-items: flex-start; flex-direction: column; gap: 8px;
+    cursor: pointer; border: 2px solid transparent;
+  }
+  .flip-card.winner .flip-front {
+    border-color: var(--gold); box-shadow: 0 0 0 3px rgba(217,164,65,0.25), 0 14px 26px var(--shadow);
+  }
+  .flip-card.loser .flip-inner { opacity: 0.35; transform: rotateY(180deg) scale(0.96); }
+  .crown-btn {
+    font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase;
+    align-self: stretch; background: var(--gold); color: var(--ink); border: none; border-radius: 6px;
+    padding: 6px 8px; font-weight: 700; cursor: pointer; margin-top: auto;
+  }
+  .waiting-note {
+    font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted);
+    text-align: center; letter-spacing: 0.03em; padding: 6px;
+  }
+
+  .toast {
+    font-family: var(--font-display); font-style: italic; font-weight: 500; font-size: 0.95rem;
+    color: var(--ivory); background: var(--felt-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; text-align: center; text-wrap: balance;
+  }
+  .toast strong { font-style: normal; font-weight: 700; color: var(--gold); }
+
+  .refresh-btn {
+    font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.04em;
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 999px; padding: 7px 14px; cursor: pointer; align-self: center;
+  }
+  .refresh-btn:hover { color: var(--ivory); border-color: var(--gold); }
+
+  footer.foot {
+    text-align: center; font-family: var(--font-mono); font-size: 0.6rem;
+    color: var(--muted); letter-spacing: 0.04em; padding-top: 6px; opacity: 0.7;
+  }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) {
+    .black-card, .flip-inner, .white-card, .play-btn { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="masthead">
+    <h1>Thing You Shouldn't Say</h1>
+    <span class="badge" id="liveBadge">LIVE</span>
+  </div>
+
+  <div class="devbar" id="devBar" hidden>
+    <input id="devChat" placeholder="chat id" />
+    <input id="devUser" placeholder="your telegram id" />
+    <button id="devGo">Connect</button>
+  </div>
+
+  <div class="readout" id="readout" hidden>
+    <span class="turn" id="turnNo">TURN --</span>
+    <span class="role" id="roleLabel"></span>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="msg" id="statusMsg">Connecting…</div>
+  </div>
+
+  <button class="refresh-btn" id="refreshBtn" hidden>refresh</button>
+
+  <footer class="foot">reads/writes the same <code>hands</code> / <code>chats</code> tables the Telegram bot uses</footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+
+  const params = new URLSearchParams(location.search);
+  let chatId = params.get('chat') || '';
+  let devUserId = params.get('user') || '';
+  const hasTelegramAuth = !!(tg && tg.initData);
+
+  const $ = (id) => document.getElementById(id);
+
+  // Dev connection bar only matters outside Telegram (LAN browser testing).
+  // REQUIRE_TELEGRAM_AUTH must be set to "false" on the server for the
+  // ?user= fallback below to actually be accepted -- see server.js.
+  if (!hasTelegramAuth) {
+    $('devBar').hidden = false;
+    $('liveBadge').textContent = 'DEV MODE';
+    $('devChat').value = chatId;
+    $('devUser').value = devUserId;
+    $('devGo').addEventListener('click', () => {
+      chatId = $('devChat').value.trim();
+      devUserId = $('devUser').value.trim();
+      const url = new URL(location.href);
+      url.searchParams.set('chat', chatId);
+      url.searchParams.set('user', devUserId);
+      history.replaceState(null, '', url);
+      poll();
+    });
+  }
+
+  let selectedHandId = null;
+  let pollTimer = null;
+
+  function headers(extra) {
+    const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
+    if (hasTelegramAuth) h['X-Telegram-Init-Data'] = tg.initData;
+    return h;
+  }
+
+  function apiUrl(path) {
+    const url = new URL(path, location.origin);
+    if (!hasTelegramAuth && devUserId) url.searchParams.set('user', devUserId);
+    return url;
+  }
+
+  async function fetchState() {
+    if (!chatId) {
+      showMessage('Enter a chat id above to connect to a real game.', false);
+      return;
+    }
+    const url = apiUrl('/api/state');
+    url.searchParams.set('chat', chatId);
+    try {
+      const res = await fetch(url, { headers: headers() });
+      const data = await res.json();
+      if (!res.ok) return showApiError(res.status, data);
+      render(data);
+    } catch (err) {
+      showMessage('Could not reach the game server — ' + err.message, true);
+    }
+  }
+
+  function showApiError(status, data) {
+    const messages = {
+      missing_telegram_auth: 'Not authenticated. Open this from the Telegram bot, or (for LAN testing) set REQUIRE_TELEGRAM_AUTH=false on the server and enter a dev user id above.',
+      invalid_init_data: "Telegram signature didn't check out — this shouldn't happen from inside the real app.",
+      no_active_game: 'No open game in that chat yet. Start one with /start in the Telegram group first.',
+      player_not_found: "You're not in this game yet — send /start in the group first.",
+    };
+    showMessage(messages[data.error] || (data.error || ('HTTP ' + status)), true);
+  }
+
+  function showMessage(text, isError) {
+    $('readout').hidden = true;
+    $('refreshBtn').hidden = true;
+    $('stage').innerHTML = '<div class="msg' + (isError ? ' err' : '') + '">' + escapeHtml(text) + '</div>';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  function render(data) {
+    if (data.status === 'waiting_for_players') {
+      showMessage('Waiting on players — ' + data.players + ' joined so far. Need at least 3 (counting Rando Carlissian) to deal in.', false);
+      return;
+    }
+
+    $('readout').hidden = false;
+    $('refreshBtn').hidden = false;
+    $('turnNo').textContent = 'TURN ' + String(data.turn).padStart(2, '0');
+    $('roleLabel').textContent = data.role === 'judge' ? 'You are judging' : 'You are playing';
+
+    const stage = $('stage');
+    stage.innerHTML = '';
+
+    const black = document.createElement('div');
+    black.className = 'black-card';
+    black.innerHTML =
+      '<p>' + escapeHtml(data.blackCard ? data.blackCard.text : '…') + '</p>' +
+      '<span class="pick-tag">PICK ' + (data.blackCard ? data.blackCard.pick : 1) + '</span>';
+    stage.appendChild(black);
+
+    if (data.role === 'judge') renderJudge(stage, data);
+    else renderPlayer(stage, data);
+  }
+
+  function renderPlayer(stage, data) {
+    const label = document.createElement('div');
+    label.className = 'hand-label';
+    label.textContent = data.needsToPlay > 0
+      ? 'Your hand — tap a card, then play it'
+      : 'Card(s) played — waiting on the table';
+    stage.appendChild(label);
+
+    const scroll = document.createElement('div');
+    scroll.className = 'hand-scroll';
+    data.hand.forEach((card) => {
+      const el = document.createElement('div');
+      el.className = 'white-card' + (selectedHandId === card.handId ? ' selected' : '') +
+        (data.needsToPlay <= 0 ? ' disabled' : '');
+      el.textContent = card.text;
+      el.tabIndex = 0;
+      el.setAttribute('role', 'button');
+      el.addEventListener('click', () => {
+        if (data.needsToPlay <= 0) return;
+        selectedHandId = selectedHandId === card.handId ? null : card.handId;
+        render(data);
+      });
+      scroll.appendChild(el);
+    });
+    stage.appendChild(scroll);
+
+    const bar = document.createElement('div');
+    bar.className = 'play-bar';
+    const btn = document.createElement('button');
+    btn.className = 'play-btn';
+    btn.disabled = selectedHandId === null || data.needsToPlay <= 0;
+    if (!btn.disabled) {
+      const card = data.hand.find((c) => c.handId === selectedHandId);
+      const label = card ? card.text : '';
+      btn.textContent = 'Play "' + (label.length > 26 ? label.slice(0, 26) + '…' : label) + '"';
+    }
+    btn.addEventListener('click', () => playCard(selectedHandId));
+    bar.appendChild(btn);
+    stage.appendChild(bar);
+
+    const note = document.createElement('div');
+    note.className = 'played-note';
+    note.textContent = data.needsToPlay <= 0 ? 'Waiting on the rest of the table…' : '';
+    stage.appendChild(note);
+  }
+
+  function renderJudge(stage, data) {
+    const label = document.createElement('div');
+    label.className = 'hand-label';
+    label.textContent = data.revealed
+      ? 'Tap each card to flip it, then crown a winner'
+      : 'Waiting for everyone to play';
+    stage.appendChild(label);
+
+    if (!data.revealed) {
+      const note = document.createElement('div');
+      note.className = 'waiting-note';
+      note.textContent = 'This refreshes automatically once everyone has submitted.';
+      stage.appendChild(note);
+      return;
+    }
+
+    const row = document.createElement('div');
+    row.className = 'judge-row';
+    data.submissions.forEach((sub) => {
+      const cell = document.createElement('div');
+      cell.className = 'flip-card';
+      const inner = document.createElement('div');
+      inner.className = 'flip-inner';
+
+      const back = document.createElement('div');
+      back.className = 'flip-face flip-back';
+      back.innerHTML = '<span class="emblem" aria-hidden="true"></span>';
+      back.addEventListener('click', () => { cell.classList.add('flipped'); });
+
+      const front = document.createElement('div');
+      front.className = 'flip-face flip-front';
+      const text = sub.cards.map((c) => c.text).join(' / ');
+      front.innerHTML = '<div>' + escapeHtml(text) + '</div>';
+      const crown = document.createElement('button');
+      crown.className = 'crown-btn';
+      crown.textContent = 'Crown winner';
+      crown.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chooseWinner(sub.submissionToken);
+      });
+      front.appendChild(crown);
+
+      inner.appendChild(back);
+      inner.appendChild(front);
+      cell.appendChild(inner);
+      row.appendChild(cell);
+    });
+    stage.appendChild(row);
+  }
+
+  async function playCard(handId) {
+    if (handId === null) return;
+    try {
+      const res = await fetch(apiUrl('/api/play'), {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify({ chat: chatId, handId }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showApiError(res.status, data);
+      selectedHandId = null;
+      fetchState();
+    } catch (err) {
+      showMessage('Play failed — ' + err.message, true);
+    }
+  }
+
+  async function chooseWinner(submissionToken) {
+    try {
+      const res = await fetch(apiUrl('/api/choose'), {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify({ chat: chatId, submissionToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showApiError(res.status, data);
+      fetchState();
+    } catch (err) {
+      showMessage('Choosing a winner failed — ' + err.message, true);
+    }
+  }
+
+  function poll() {
+    fetchState();
+    clearInterval(pollTimer);
+    pollTimer = setInterval(fetchState, 4000);
+  }
+
+  $('refreshBtn').addEventListener('click', fetchState);
+
+  poll();
+})();
+</script>
+</body>
+</html>

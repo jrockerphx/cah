@@ -15,6 +15,7 @@
 
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
 const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3001;
@@ -29,6 +30,12 @@ const REQUIRE_TELEGRAM_AUTH = process.env.REQUIRE_TELEGRAM_AUTH === 'true';
 const pool = new Pool({ connectionString: DATABASE_URL });
 const app = express();
 app.use(express.json());
+// The actual flip-card frontend (public/index.html), wired to the real
+// /api/* endpoints below instead of the earlier mock-data-only prototype.
+// This is also exactly what WEBAPP_URL should point at once you're ready
+// to cut Telegram's button over from the inline-query flow to the real
+// Mini App -- Telegram opens this same page inside its own WebView.
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------------------------------------------------------------------------
 // Telegram WebApp auth (validates the initData string Telegram signs and
