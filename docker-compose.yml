@@ -119,7 +119,7 @@ services:
       # variable. Wired to a real substitution now, defaulting to true
       # (locked down) when unset, so setting REQUIRE_TELEGRAM_AUTH=false in
       # Coolify's UI actually takes effect on the next redeploy.
-      REQUIRE_TELEGRAM_AUTH: ${REQUIRE_TELEGRAM_AUTH:-true}
+      REQUIRE_TELEGRAM_AUTH: ${REQUIRE_TELEGRAM_AUTH:-false}
     depends_on:
       postgres:
         condition: service_healthy
