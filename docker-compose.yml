@@ -50,7 +50,12 @@ services:
     # — that upstream quirk meant your build context (and any fork) was
     # silently ignored before. See the Dockerfile's own comment.
     build:
-      context: https://github.com/jrockerphx/cah.git
+      # Pinned to #main explicitly (not just the bare .git URL) so
+      # BuildKit's remote-git-context cache is keyed to a real ref it
+      # re-resolves each time, instead of silently reusing a stale
+      # snapshot from an earlier build. Bit us on cah_web below — see
+      # the docker builder prune fix from chat if it ever happens again.
+      context: https://github.com/jrockerphx/cah.git#main
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     environment:
@@ -87,7 +92,11 @@ services:
   # this cert only covers the nginx→cah_web hop over your LAN.
   cah_web:
     build:
-      context: https://github.com/jrockerphx/cah.git
+      # Same #main pin as cah_bot above — this is the service that actually
+      # hit the stale-context caching bug (certs/ silently missing from a
+      # cached snapshot). Pinning the ref doesn't guarantee BuildKit never
+      # caches again, but it removes the ambiguity that let it happen.
+      context: https://github.com/jrockerphx/cah.git#main
       dockerfile: webapp/Dockerfile
     restart: unless-stopped
     ports:
