@@ -15,9 +15,19 @@
 
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
+const https = require('https');
 const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3001;
+// TLS is self-signed and internal-only: nginx (or whatever's fronting this)
+// terminates the real public https:// with a real cert and talks to this
+// process over the LAN. This cert just gives that hop TLS instead of plaintext
+// -- nginx needs `proxy_ssl_verify off;` (or the equivalent) since nothing
+// signed this cert. Mount your own cert/key over these paths via env vars if
+// you'd rather not use the one baked into the image.
+const TLS_CERT_PATH = process.env.TLS_CERT_PATH || `${__dirname}/certs/cert.pem`;
+const TLS_KEY_PATH = process.env.TLS_KEY_PATH || `${__dirname}/certs/key.pem`;
 const BOT_TOKEN = process.env.BOT_TOKEN; // same token the Rust bot uses
 const DATABASE_URL =
   process.env.DATABASE_URL || 'postgres://postgres:postgres@postgres/cah_bot';
@@ -475,6 +485,19 @@ async function sendTelegramMessage(telegramChatId, text) {
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
-app.listen(PORT, () => {
-  console.log(`cah-webapp API listening on :${PORT}`);
-});
+if (fs.existsSync(TLS_CERT_PATH) && fs.existsSync(TLS_KEY_PATH)) {
+  https
+    .createServer(
+      { cert: fs.readFileSync(TLS_CERT_PATH), key: fs.readFileSync(TLS_KEY_PATH) },
+      app,
+    )
+    .listen(PORT, () => {
+      console.log(`cah-webapp API listening on :${PORT} (https, self-signed)`);
+    });
+} else {
+  // Falls back to plain HTTP if no cert is present -- keeps `node server.js`
+  // usable for local dev without needing to generate/mount certs first.
+  app.listen(PORT, () => {
+    console.log(`cah-webapp API listening on :${PORT} (http, no cert found)`);
+  });
+}
