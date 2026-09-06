@@ -80,24 +80,24 @@ services:
   # Coolify's own Traefik already owns 80/443 on this host, and you're
   # routing this through your own nginx gatekeeper box instead of Coolify's
   # domain/Traefik/Let's Encrypt flow — so the "ports:" line below publishes
-  # 3001 straight to the host.
+  # 3001 straight to the host. nginx's proxy_pass target is plain
+  # http://192.168.0.206:3001 -- no cert baked in here (dropped the
+  # self-signed approach; not worth the complexity when nginx is already
+  # doing the real public-facing TLS termination).
   #
-  # TLS: server.js now terminates HTTPS itself, using a self-signed cert
-  # baked into the image (webapp/certs/), to match nginx's usual "always
-  # proxy_pass https:// to the backend" pattern. nginx's proxy_pass target
-  # is https://192.168.0.206:3001 — remember to set `proxy_ssl_verify off;`
-  # (or your usual equivalent) on that location block, since nothing signed
-  # this cert and nginx will otherwise refuse it. The real public https://
-  # URL Telegram needs for the WebApp button is still the one nginx serves;
-  # this cert only covers the nginx→cah_web hop over your LAN.
+  # CONTEXT SCOPING: this is scoped to the webapp/ subfolder directly
+  # (the "#main:webapp" fragment) instead of pointing a bare repo-root
+  # context at a nested Dockerfile. That distinction is what actually
+  # broke the certs COPY step earlier -- a git-URL build context with
+  # `dockerfile: webapp/Dockerfile` still resolves every COPY/ADD in that
+  # Dockerfile relative to the CONTEXT ROOT (the whole repo), not relative
+  # to webapp/, so `COPY server.js ./` was silently one stale-cache-hit
+  # away from failing the exact same way certs did. Scoping context to
+  # webapp/ up front removes that ambiguity for good.
   cah_web:
     build:
-      # Same #main pin as cah_bot above — this is the service that actually
-      # hit the stale-context caching bug (certs/ silently missing from a
-      # cached snapshot). Pinning the ref doesn't guarantee BuildKit never
-      # caches again, but it removes the ambiguity that let it happen.
-      context: https://github.com/jrockerphx/cah.git#main
-      dockerfile: webapp/Dockerfile
+      context: https://github.com/jrockerphx/cah.git#main:webapp
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "3001:3001"
