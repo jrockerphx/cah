@@ -131,6 +131,42 @@ async function findJudge(client, chat) {
   return players.find((p) => isMyTurn(chat, p)) || null;
 }
 
+// Fetches this turn's non-judge submissions grouped by player, PLUS a
+// deterministic-but-unpredictable ordering over the submitting player ids.
+// Used to build the judge's anonymous view (GET /api/state) and to resolve
+// a pick back to a real player (POST /api/choose) without ever putting a
+// real player_id in front of the judge's client.
+//
+// The order is derived from sha256(`${chat.id}:${chat.turn}:${playerId}`)
+// rather than raw player_id or submission order -- either of those would
+// leak identity over time: player_id is the same every turn for a given
+// player, and submission order alone tends to correlate with who tends to
+// answer fast/slow. Hashing in the turn number means the order reshuffles
+// every turn with no relation to anything the judge could learn.
+async function getAnonymizedSubmissions(client, chat, judgeId) {
+  const { rows: submissionRows } = await client.query(
+    `SELECT h.id AS hand_id, h.player_id, c.* FROM hands h
+     JOIN cards c ON c.id = h.card_id
+     WHERE h.chat_id = $1 AND h.played_on_turn = $2 AND h.player_id != $3
+     ORDER BY h.seq ASC`,
+    [chat.id, chat.turn, judgeId],
+  );
+  const byPlayer = {};
+  for (const row of submissionRows) {
+    (byPlayer[row.player_id] ||= []).push(row);
+  }
+  const rank = (playerId) =>
+    crypto.createHash('sha256').update(`${chat.id}:${chat.turn}:${playerId}`).digest('hex');
+  const playerIds = Object.keys(byPlayer)
+    .map(Number)
+    .sort((a, b) => {
+      const ra = rank(a);
+      const rb = rank(b);
+      return ra < rb ? -1 : ra > rb ? 1 : 0;
+    });
+  return { byPlayer, playerIds };
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/state?chat=<telegram_chat_id>
 //
@@ -169,21 +205,11 @@ app.get('/api/state', requireTelegramUser, async (req, res) => {
     const amJudge = me.id === judge.id;
 
     // everyone else's submissions for this turn (includes Rando Carlissian, player_id = 0)
-    const { rows: submissionRows } = await client.query(
-      `SELECT h.id AS hand_id, h.player_id, c.* FROM hands h
-       JOIN cards c ON c.id = h.card_id
-       WHERE h.chat_id = $1 AND h.played_on_turn = $2 AND h.player_id != $3
-       ORDER BY h.seq ASC`,
-      [chat.id, chat.turn, judge.id],
-    );
-    const byPlayer = {};
-    for (const row of submissionRows) {
-      (byPlayer[row.player_id] ||= []).push(row);
-    }
+    const { byPlayer, playerIds } = await getAnonymizedSubmissions(client, chat, judge.id);
     const expectedSubmitters = chat.players - 1 + (chat.rando_carlissian ? 1 : 0);
     const revealed =
-      Object.keys(byPlayer).length === expectedSubmitters &&
-      Object.values(byPlayer).every((cards) => cards.length >= chat.pick);
+      playerIds.length === expectedSubmitters &&
+      playerIds.every((pid) => byPlayer[pid].length >= chat.pick);
 
     if (amJudge) {
       return res.json({
@@ -196,14 +222,16 @@ app.get('/api/state', requireTelegramUser, async (req, res) => {
         // only send the actual cards once every player has submitted —
         // matches play.rs's as_judge gate exactly, just returned as JSON
         // instead of a wall of inline query results.
+        //
+        // submissionToken is just this submission's position in
+        // getAnonymizedSubmissions' per-turn shuffle -- never a real
+        // player_id. POST /api/choose recomputes the same shuffle and maps
+        // the index back to a player server-side, so identity never touches
+        // the judge's client at all.
         submissions: revealed
-          ? Object.entries(byPlayer).map(([playerId, cards]) => ({
-              // NOTE: this is a prototype convenience. Real CAH keeps the
-              // author anonymous until picked — don't ship playerId to the
-              // judge's client for real; group cards under an opaque token
-              // and resolve identity server-side in POST /api/choose.
-              submissionToken: playerId,
-              cards: cards.map((c) => ({ handId: c.hand_id, text: c.text })),
+          ? playerIds.map((pid, index) => ({
+              submissionToken: String(index),
+              cards: byPlayer[pid].map((c) => ({ handId: c.hand_id, text: c.text })),
             }))
           : [],
       });
@@ -324,20 +352,28 @@ app.post('/api/choose', requireTelegramUser, async (req, res) => {
     const judge = await findJudge(client, chat);
     if (!me || !judge || me.id !== judge.id) throw httpError(403, 'not_judge');
 
-    const winningPlayerId = Number(submissionToken); // 0 == Rando Carlissian
-
-    const { rows: winningHands } = await client.query(
-      `SELECT * FROM hands WHERE chat_id = $1 AND player_id = $2 AND played_on_turn = $3`,
-      [chat.id, winningPlayerId, chat.turn],
-    );
-    if (winningHands.length === 0) throw httpError(400, 'submission_not_found');
+    // submissionToken is a position in the same per-turn shuffle GET
+    // /api/state handed the judge, not a real player_id -- resolve it the
+    // same way here so a crafted/guessed token can only ever point at a
+    // real submission from this exact turn, never an arbitrary player.
+    const { byPlayer, playerIds } = await getAnonymizedSubmissions(client, chat, judge.id);
+    const index = Number(submissionToken);
+    if (!Number.isInteger(index) || index < 0 || index >= playerIds.length) {
+      throw httpError(400, 'submission_not_found');
+    }
+    const winningPlayerId = playerIds[index]; // 0 == Rando Carlissian
+    const winningHands = byPlayer[winningPlayerId];
+    if (!winningHands || winningHands.length === 0) throw httpError(400, 'submission_not_found');
 
     if (winningPlayerId > 0) {
       await client.query(`UPDATE players SET points = points + 1 WHERE id = $1`, [winningPlayerId]);
     }
     await client.query(
+      // winningHands rows come from getAnonymizedSubmissions' join with
+      // cards, so the hand's own id is aliased as hand_id there -- h.id on
+      // these rows is actually the CARD id (from cards.*), not the hand.
       `UPDATE hands SET won = true WHERE id = ANY($1::int[])`,
-      [winningHands.map((h) => h.id)],
+      [winningHands.map((h) => h.hand_id)],
     );
 
     const newTurn = chat.turn + 1;
