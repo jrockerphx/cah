@@ -85,18 +85,19 @@ function requireTelegramUser(req, res, next) {
 // Small data-access helpers — mirror the sea-orm queries in the Rust source.
 // ---------------------------------------------------------------------------
 
-// mirrors chat::find_or_insert's lookup half (we never insert here; the bot
-// owns chat creation via /start in a group)
-async function getOpenChatByTelegramId(client, telegramChatId) {
+// The `chat` query/body param this whole API takes is ALWAYS the internal
+// `chats.id` primary key -- the same id bot/parser/mod.rs's play_button()
+// bakes into the Mini App button's URL (`?chat={chat_id}` there, using
+// chat.id, never chat.telegram_id). It is NOT the Telegram group chat id.
+// Those two numbers look interchangeable (both small ints) but are not --
+// this file used to look chats up by telegram_id here, which meant every
+// single request 404'd with no_active_game since a real internal id will
+// essentially never collide with a real Telegram group id.
+async function getOpenChatById(client, chatId) {
   const { rows } = await client.query(
-    `SELECT * FROM chats WHERE telegram_id = $1 AND end_date IS NULL`,
-    [telegramChatId],
+    `SELECT * FROM chats WHERE id = $1 AND end_date IS NULL`,
+    [chatId],
   );
-  return rows[0] || null;
-}
-
-async function getChatById(client, chatId) {
-  const { rows } = await client.query(`SELECT * FROM chats WHERE id = $1`, [chatId]);
   return rows[0] || null;
 }
 
@@ -168,19 +169,19 @@ async function getAnonymizedSubmissions(client, chat, judgeId) {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/state?chat=<telegram_chat_id>
+// GET /api/state?chat=<internal chats.id, NOT the Telegram group id>
 //
 // Mirrors bot/parser/status.rs + the "am I judge / what's in my hand" split
 // from bot/parser/play.rs, collapsed into one payload the frontend can
 // render directly instead of two separate flows.
 // ---------------------------------------------------------------------------
 app.get('/api/state', requireTelegramUser, async (req, res) => {
-  const telegramChatId = req.query.chat;
-  if (!telegramChatId) return res.status(400).json({ error: 'missing_chat' });
+  const chatId = req.query.chat;
+  if (!chatId) return res.status(400).json({ error: 'missing_chat' });
 
   const client = await pool.connect();
   try {
-    const chat = await getOpenChatByTelegramId(client, telegramChatId);
+    const chat = await getOpenChatById(client, chatId);
     if (!chat) return res.status(404).json({ error: 'no_active_game' });
 
     if (chat.players + (chat.rando_carlissian ? 1 : 0) < 3) {
@@ -267,15 +268,15 @@ app.get('/api/state', requireTelegramUser, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/play  { chat, handId }
+// POST /api/play  { chat: <internal chats.id>, handId }
 // Mirrors bot/parser/play.rs::as_player (submit one card) — the "choose a
 // winner" side lives in /api/choose below, mirroring choose.rs.
 // ---------------------------------------------------------------------------
 app.post('/api/play', requireTelegramUser, async (req, res) => {
-  const { chat: telegramChatId, handId } = req.body;
+  const { chat: chatId, handId } = req.body;
   const client = await pool.connect();
   try {
-    const chat = await getOpenChatByTelegramId(client, telegramChatId);
+    const chat = await getOpenChatById(client, chatId);
     if (!chat) return res.status(404).json({ error: 'no_active_game' });
     if (chat.end_date) return res.status(409).json({ error: 'game_ended' });
 
@@ -333,19 +334,19 @@ app.post('/api/play', requireTelegramUser, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/choose  { chat, submissionToken }
+// POST /api/choose  { chat: <internal chats.id>, submissionToken }
 // Judge picks a winning submission. Mirrors choose.rs::as_judge PLUS
 // chat::Model::reset (deal the next black card + top up hands) collapsed
 // into one call, since the Mini App doesn't need the intermediate states
 // split across separate bot messages the way Telegram commands do.
 // ---------------------------------------------------------------------------
 app.post('/api/choose', requireTelegramUser, async (req, res) => {
-  const { chat: telegramChatId, submissionToken } = req.body;
+  const { chat: chatId, submissionToken } = req.body;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const chat = await getOpenChatByTelegramId(client, telegramChatId);
+    const chat = await getOpenChatById(client, chatId);
     if (!chat) throw httpError(404, 'no_active_game');
 
     const me = await getPlayer(client, chat.id, req.telegramUserId);
