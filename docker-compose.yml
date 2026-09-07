@@ -1,19 +1,22 @@
-# Coolify "Docker Compose" resource for nappa85/cah_bot
+# Three services sharing one Postgres database:
+#   postgres  - the database (see the big warning below before renaming it)
+#   cah_bot   - the Rust/Telegram bot
+#   cah_web   - the Mini App (Express API + static frontend the bot's
+#               "Open cards hand" button opens as a Telegram WebApp)
 #
-# WHY THIS SHAPE:
-# The bot's source hardcodes its DB connection string as:
-#   postgres://postgres:postgres@postgres/cah_bot
-# It does NOT read a DATABASE_URL env var. That means whatever runs the
-# bot must be able to resolve the hostname "postgres" to the Postgres
-# container, with that exact user/password/db name. Docker Compose gives
-# every service a DNS entry matching its service name for free, so naming
-# the db service "postgres" here satisfies the hardcoded string without
-# touching the bot's Rust source.
+# ---------------------------------------------------------------------------
+# IMPORTANT: cah_bot's database connection string is hardcoded in the Rust
+# source (see src/main.rs) as:
 #
-# The official postgres image auto-runs any .sql file dropped into
-# /docker-entrypoint-initdb.d/ the FIRST time it starts on an empty data
-# volume — so mounting schema.postgres.sql there replaces the manual
-# "psql -f schema.sql" step, and only runs once (safe on restarts/redeploys).
+#     postgres://postgres:postgres@postgres/cah_bot
+#
+# It is NOT read from an environment variable. That means the service below
+# named "postgres" must keep that exact name (Compose's DNS resolves the
+# hostname "postgres" to this container), and POSTGRES_USER / PASSWORD / DB
+# below must stay postgres / postgres / cah_bot. If you need different
+# credentials, patch src/main.rs and rebuild the bot image — don't just
+# edit this file, the bot will silently fail to connect.
+# ---------------------------------------------------------------------------
 
 services:
   postgres:
@@ -24,112 +27,44 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: cah_bot
     volumes:
-      - cah_bot_pgdata:/var/lib/postgresql/data
-      - ./schema.postgres.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - cah_pgdata:/var/lib/postgresql/data
+      - ./schema.postgres.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
-      # Gives Postgres up to 2 extra minutes before the healthcheck can fail
-      # it. On a cold start, if the cah_bot image is also being pulled/built
-      # at the same time, disk I/O contention can push init past the plain
-      # 50s window (5s x 10 retries) and Coolify tears the stack down with
-      # "dependency failed to start: unhealthy" -- happened on first deploy.
-      start_period: 120s
 
   cah_bot:
-    # CHANGED: now points at YOUR repo instead of nappa85/cah_bot upstream
-    # — same "cah" repo docker-compose.yml and schema.postgres.sql already
-    # live in. Drop the cah_bot-fork.zip's contents (src/, Cargo.toml,
-    # Cargo.lock, docker/, webapp/, cah-cards-full.json, .gitignore) into
-    # this repo's root alongside the files already here, commit, push.
-    #
-    # Also fixed: the fork's Dockerfile now builds from this context
-    # directly instead of re-cloning nappa85/cah_bot inside the build step
-    # — that upstream quirk meant your build context (and any fork) was
-    # silently ignored before. See the Dockerfile's own comment.
     build:
-      # Pinned to #main explicitly (not just the bare .git URL) so
-      # BuildKit's remote-git-context cache is keyed to a real ref it
-      # re-resolves each time, instead of silently reusing a stale
-      # snapshot from an earlier build. Bit us on cah_web below — see
-      # the docker builder prune fix from chat if it ever happens again.
-      context: https://github.com/jrockerphx/cah.git#main
+      context: .
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       BOT_NAME: ${BOT_NAME}
-      # Leave blank until cah_web has a real https:// domain from Coolify —
-      # unset/empty means the bot falls back to the original inline-query
-      # "Open cards hand" flow exactly as it does today. Only fill this in
-      # once you're ready to cut over (see cah_web's own build note below
-      # about not running both flows against a live game at once).
+      # Base URL of the Mini App below. Leave unset/empty to fall back to
+      # the original inline-query "hand of cards" flow with no Mini App at
+      # all. Must be https:// — Telegram refuses http:// WebApp URLs.
       WEBAPP_URL: ${WEBAPP_URL:-}
-      # Without this, `docker logs` on cah_bot is permanently silent, even
-      # across real failures. main.rs calls tracing_subscriber::fmt::init(),
-      # which reads RUST_LOG at startup -- with it unset, the env-filter has
-      # zero directives and swallows EVERY event, including the warn!() in
-      # bot/mod.rs's clear_error() that's supposed to tell us when Telegram
-      # rejects a message with a 400 (bad Markdown, closed topic, etc) and
-      # the bot silently eats it. This is why chasing the missing-confirmation
-      # bug produced nothing from the logs -- we were flying fully blind.
-      RUST_LOG: ${RUST_LOG:-cah_bot=info,warn}
     depends_on:
       postgres:
         condition: service_healthy
 
-  # New: the HTML5 UI's backend. Reads/writes the exact same Postgres
-  # tables cah_bot uses — see cah-webapp-api's own README (from chat) for
-  # the endpoints and the gotchas before pointing real games at it.
-  #
-  # PORT: server.js listens on 3001 inside the container (Dockerfile EXPOSE
-  # 3001, overridable via a PORT env var if you ever need to change it).
-  # Coolify's own Traefik already owns 80/443 on this host, and you're
-  # routing this through your own nginx gatekeeper box instead of Coolify's
-  # domain/Traefik/Let's Encrypt flow — so the "ports:" line below publishes
-  # 3001 straight to the host. nginx's proxy_pass target is plain
-  # http://192.168.0.206:3001 -- no cert baked in here (dropped the
-  # self-signed approach; not worth the complexity when nginx is already
-  # doing the real public-facing TLS termination).
-  #
-  # CONTEXT SCOPING: this is scoped to the webapp/ subfolder directly
-  # (the "#main:webapp" fragment) instead of pointing a bare repo-root
-  # context at a nested Dockerfile. That distinction is what actually
-  # broke the certs COPY step earlier -- a git-URL build context with
-  # `dockerfile: webapp/Dockerfile` still resolves every COPY/ADD in that
-  # Dockerfile relative to the CONTEXT ROOT (the whole repo), not relative
-  # to webapp/, so `COPY server.js ./` was silently one stale-cache-hit
-  # away from failing the exact same way certs did. Scoping context to
-  # webapp/ up front removes that ambiguity for good.
   cah_web:
     build:
-      context: https://github.com/jrockerphx/cah.git#main:webapp
-      dockerfile: Dockerfile
+      context: ./webapp
     restart: unless-stopped
-    ports:
-      - "3001:3001"
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres/cah_bot
       BOT_TOKEN: ${BOT_TOKEN}
-      # server.js now needs this too -- /api/play and /api/choose DM players
-      # fresh "Open cards hand" links directly (see server.js's own comment
-      # by WEBAPP_URL), the same job main.rs's WEBAPP_URL already does for
-      # the Rust bot's /start and /status. Same value you already set for
-      # cah_bot; leave blank to skip those DMs (group-only notifications,
-      # like before).
-      WEBAPP_URL: ${WEBAPP_URL:-}
-      # Was hardcoded to the literal string "true" before -- meaning
-      # flipping this in Coolify's Environment Variables panel did
-      # *nothing*, since the compose file never actually referenced that
-      # variable. Wired to a real substitution now, defaulting to true
-      # (locked down) when unset, so setting REQUIRE_TELEGRAM_AUTH=false in
-      # Coolify's UI actually takes effect on the next redeploy.
-      REQUIRE_TELEGRAM_AUTH: ${REQUIRE_TELEGRAM_AUTH:-true}
+      PORT: 3001
+      REQUIRE_TELEGRAM_AUTH: "true"
+    ports:
+      - "3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
 
 volumes:
-  cah_bot_pgdata:
+  cah_pgdata:
