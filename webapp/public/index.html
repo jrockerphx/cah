@@ -104,12 +104,12 @@
      forever, not just when a new card actually landed. Now it's reserved
      for the moment a fresh black card actually gets dealt: a bigger, more
      "tossed onto the table" motion instead of a plain fade. */
-  .black-card.deal-in { animation: dealIn 0.7s cubic-bezier(.22,.85,.35,1.3) both; }
+  .black-card.deal-in { animation: dealIn 1.05s cubic-bezier(.2,.85,.3,1.3) both; }
   @keyframes dealIn {
-    /* Exaggerated: bigger drop, bigger spin, bigger overshoot before it
-       settles into its resting tilt. */
-    0%   { opacity: 0; transform: translateY(-110px) rotate(18deg) scale(0.7); }
-    55%  { opacity: 1; transform: translateY(16px) rotate(-8deg) scale(1.08); }
+    /* Exaggerated further + slowed down per Jon's ask: bigger drop, bigger
+       spin, bigger overshoot before it settles into its resting tilt. */
+    0%   { opacity: 0; transform: translateY(-170px) rotate(28deg) scale(0.55); }
+    55%  { opacity: 1; transform: translateY(26px) rotate(-13deg) scale(1.14); }
     100% { opacity: 1; transform: translateY(0) rotate(-1.6deg) scale(1); }
   }
 
@@ -146,7 +146,9 @@
        tear-down-and-rebuild-the-whole-grid approach. A transition can't
        animate a class that's already present the instant an element is
        created, only a change on an element that was already there. */
-    transition: transform 0.34s cubic-bezier(.34,1.56,.64,1), box-shadow 0.28s ease, border-color 0.2s ease;
+    /* Slowed down further per Jon's ask -- 0.5s instead of 0.34s, so the
+       overshoot actually reads instead of snapping past. */
+    transition: transform 0.5s cubic-bezier(.34,1.56,.64,1), box-shadow 0.4s ease, border-color 0.3s ease;
     border: 2px solid transparent; text-wrap: balance;
   }
   /* -42.6% is 1/3 of the card's own height expressed as a percentage of its
@@ -157,10 +159,9 @@
   .hand-grid .white-card:nth-child(n+5) { margin-top: -42.6%; z-index: 2; }
   .white-card:active { transform: scale(0.94); }
   .white-card.selected {
-    /* Exaggerated per Jon's ask -- bigger lift, bigger pop, a real tilt
-       instead of a token 2deg nudge. */
-    transform: translateY(-34px) scale(1.16) rotate(-6deg);
-    box-shadow: 0 26px 40px var(--shadow); border-color: var(--gold); z-index: 5;
+    /* Exaggerated further per Jon's ask -- an even bigger lift/pop/tilt. */
+    transform: translateY(-46px) scale(1.26) rotate(-9deg);
+    box-shadow: 0 30px 48px var(--shadow); border-color: var(--gold); z-index: 5;
   }
   .white-card.disabled { opacity: 0.4; pointer-events: none; }
 
@@ -190,7 +191,8 @@
   .flip-card { position: relative; perspective: 1000px; aspect-ratio: 5 / 6.6; }
   .flip-inner {
     position: relative; width: 100%; height: 100%; transform-style: preserve-3d;
-    transition: transform 0.55s cubic-bezier(.3,.9,.3,1);
+    /* Slowed down per Jon's ask -- a more theatrical flip. */
+    transition: transform 0.8s cubic-bezier(.3,.9,.3,1);
   }
   .flip-card.flipped .flip-inner { transform: rotateY(180deg); }
   .flip-face {
@@ -227,34 +229,35 @@
     border-color: var(--gold);
     box-shadow: 0 0 0 3px rgba(217,164,65,0.35), 0 0 26px rgba(217,164,65,0.5), 0 14px 26px var(--shadow);
   }
-  .flip-card.winner { animation: crownPulse 0.8s cubic-bezier(.34,1.56,.64,1) both; }
+  .flip-card.winner { animation: crownPulse 1.2s cubic-bezier(.34,1.56,.64,1) both; }
   @keyframes crownPulse {
-    /* Exaggerated -- bigger swing, more of a real wobble than a nudge. */
+    /* Exaggerated further + slowed down -- a real wobble, not a nudge. */
     0%   { transform: scale(1); }
-    30%  { transform: scale(1.3) rotate(-5deg); }
-    55%  { transform: scale(0.92) rotate(4deg); }
-    75%  { transform: scale(1.12) rotate(-2deg); }
-    100% { transform: scale(1.08) rotate(0deg); }
+    25%  { transform: scale(1.42) rotate(-8deg); }
+    48%  { transform: scale(0.85) rotate(7deg); }
+    68%  { transform: scale(1.2) rotate(-4deg); }
+    85%  { transform: scale(0.97) rotate(2deg); }
+    100% { transform: scale(1.1) rotate(0deg); }
   }
   .flip-card.loser {
     opacity: 0.25; transform: scale(0.82) rotate(-3deg);
-    transition: transform 0.5s ease, opacity 0.5s ease;
+    transition: transform 0.7s ease, opacity 0.7s ease;
   }
   .flip-card.loser .crown-btn { visibility: hidden; }
   .crown-pop {
-    position: absolute; top: -26px; left: 50%; font-size: 2.4rem; line-height: 1;
-    pointer-events: none; animation: crownDrop 0.8s cubic-bezier(.34,1.56,.64,1) 0.1s both,
-      crownPopWiggle 1.4s ease-in-out 0.9s infinite; z-index: 6;
+    position: absolute; top: -30px; left: 50%; font-size: 2.9rem; line-height: 1;
+    pointer-events: none; animation: crownDrop 1.15s cubic-bezier(.3,1.6,.3,1) 0.1s both,
+      crownPopWiggle 2.2s ease-in-out 1.25s infinite; z-index: 6;
     filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
   }
   @keyframes crownDrop {
-    0%   { transform: translate(-50%, -34px) scale(0) rotate(-40deg); opacity: 0; }
-    55%  { transform: translate(-50%, 8px) scale(1.5) rotate(16deg); opacity: 1; }
-    100% { transform: translate(-50%, 0) scale(1.15) rotate(0deg); opacity: 1; }
+    0%   { transform: translate(-50%, -48px) scale(0) rotate(-55deg); opacity: 0; }
+    55%  { transform: translate(-50%, 12px) scale(1.7) rotate(22deg); opacity: 1; }
+    100% { transform: translate(-50%, 0) scale(1.25) rotate(0deg); opacity: 1; }
   }
   @keyframes crownPopWiggle {
-    0%, 100% { transform: translate(-50%, 0) scale(1.15) rotate(-6deg); }
-    50%      { transform: translate(-50%, 0) scale(1.15) rotate(6deg); }
+    0%, 100% { transform: translate(-50%, 0) scale(1.25) rotate(-9deg); }
+    50%      { transform: translate(-50%, 0) scale(1.25) rotate(9deg); }
   }
   .crown-btn {
     font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase;
@@ -275,57 +278,61 @@
     position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 14px; padding: 28px;
     background: rgba(12, 11, 16, 0.88); text-align: center; cursor: pointer;
-    animation: overlayFadeIn 0.35s ease both;
+    animation: overlayFadeIn 0.5s ease both;
   }
-  .winner-overlay.leaving { animation: overlayFadeOut 0.35s ease both; }
+  .winner-overlay.leaving { animation: overlayFadeOut 0.5s ease both; }
   @keyframes overlayFadeIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes overlayFadeOut { from { opacity: 1; } to { opacity: 0; } }
+  /* Slowed down + exaggerated further per Jon's ask -- a longer, bigger
+     entrance for every piece, and slower, wider idle loops once everything
+     has landed (there's more hold time now that the overlay stays up for
+     5.5s instead of 3.2s, so the loops can afford to breathe more too). */
   .overlay-crown {
     font-size: 5.6rem; line-height: 1; filter: drop-shadow(0 10px 22px rgba(0,0,0,0.6));
-    animation: overlayCrownDrop 0.9s cubic-bezier(.24,1.6,.4,1) 0.05s both,
-      overlayCrownWiggle 1.6s ease-in-out 0.95s infinite;
+    animation: overlayCrownDrop 1.3s cubic-bezier(.22,1.7,.36,1) 0.05s both,
+      overlayCrownWiggle 2.2s ease-in-out 1.35s infinite;
   }
   @keyframes overlayCrownDrop {
-    0%   { transform: translateY(-160px) scale(0.2) rotate(-45deg); opacity: 0; }
-    55%  { transform: translateY(22px) scale(1.3) rotate(16deg); opacity: 1; }
-    75%  { transform: translateY(-10px) scale(1.05) rotate(-7deg); }
+    0%   { transform: translateY(-220px) scale(0.15) rotate(-60deg); opacity: 0; }
+    55%  { transform: translateY(34px) scale(1.45) rotate(24deg); opacity: 1; }
+    75%  { transform: translateY(-16px) scale(1.08) rotate(-10deg); }
     100% { transform: translateY(0) scale(1) rotate(0deg); }
   }
   @keyframes overlayCrownWiggle {
-    0%, 100% { transform: rotate(-7deg); }
-    50%      { transform: rotate(7deg); }
+    0%, 100% { transform: rotate(-10deg); }
+    50%      { transform: rotate(10deg); }
   }
   .overlay-card {
     width: 100%; max-width: 240px; aspect-ratio: 5 / 6.4; background: var(--ivory); color: var(--ink);
     border-radius: 12px; padding: 18px; font-family: var(--font-card); font-weight: 800; font-size: 1.02rem;
     line-height: 1.3; display: flex; align-items: center; justify-content: center; text-align: center;
     box-shadow: 0 0 0 4px var(--gold), 0 0 40px rgba(217,164,65,0.65), 0 22px 40px var(--shadow);
-    animation: overlayCardIn 0.6s cubic-bezier(.24,1.6,.4,1) 0.22s both,
-      overlayCardGlow 1.4s ease-in-out 0.82s infinite;
+    animation: overlayCardIn 0.9s cubic-bezier(.22,1.7,.36,1) 0.3s both,
+      overlayCardGlow 1.9s ease-in-out 1.2s infinite;
   }
   @keyframes overlayCardIn {
-    0%   { opacity: 0; transform: scale(0.35) rotate(12deg) translateY(50px); }
+    0%   { opacity: 0; transform: scale(0.25) rotate(18deg) translateY(70px); }
     100% { opacity: 1; transform: scale(1) rotate(-1.5deg) translateY(0); }
   }
   @keyframes overlayCardGlow {
     0%, 100% { box-shadow: 0 0 0 4px var(--gold), 0 0 40px rgba(217,164,65,0.65), 0 22px 40px var(--shadow); }
-    50%      { box-shadow: 0 0 0 7px var(--gold), 0 0 70px rgba(217,164,65,0.95), 0 22px 40px var(--shadow); }
+    50%      { box-shadow: 0 0 0 9px var(--gold), 0 0 90px rgba(217,164,65,1), 0 22px 40px var(--shadow); }
   }
   .overlay-name {
     font-family: var(--font-display); font-style: italic; font-weight: 700; color: var(--gold);
-    font-size: 1.8rem; text-wrap: balance; animation: overlayTextIn 0.5s ease 0.45s both;
+    font-size: 1.8rem; text-wrap: balance; animation: overlayTextIn 0.7s ease 0.75s both;
   }
   .overlay-insult {
     font-family: var(--font-card); font-weight: 600; color: var(--ivory); font-size: 0.95rem;
-    max-width: 320px; text-wrap: balance; opacity: 0.92; animation: overlayTextIn 0.5s ease 0.6s both;
+    max-width: 320px; text-wrap: balance; opacity: 0.92; animation: overlayTextIn 0.7s ease 1s both;
   }
   @keyframes overlayTextIn {
-    from { opacity: 0; transform: translateY(12px); }
+    from { opacity: 0; transform: translateY(18px); }
     to   { opacity: 1; transform: translateY(0); }
   }
   .overlay-hint {
     font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; color: var(--muted);
-    text-transform: uppercase; margin-top: 4px; animation: overlayTextIn 0.5s ease 0.8s both;
+    text-transform: uppercase; margin-top: 4px; animation: overlayTextIn 0.7s ease 1.25s both;
   }
   .waiting-note {
     font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted);
@@ -526,7 +533,7 @@
         setTimeout(() => { if (overlay.isConnected) overlay.remove(); resolve(); }, 500);
       };
       overlay.addEventListener('click', dismiss);
-      const timer = setTimeout(dismiss, 3200);
+      const timer = setTimeout(dismiss, 5500);
 
       document.body.appendChild(overlay);
     });
@@ -816,10 +823,13 @@
       // else will see. Mark it shown now so the next poll (which will
       // include this same round in previousWinner) doesn't replay it here.
       if (data.previousWinner) lastShownWinnerTurn = data.previousWinner.turn;
+      // Longer pause now that the local grid celebration (crownPulse +
+      // crown-pop) itself runs longer -- let it actually finish landing
+      // before the big overlay takes over the screen.
       setTimeout(async () => {
         if (data.previousWinner) await showWinnerOverlay(data.previousWinner);
         poll();
-      }, 500);
+      }, 950);
     } catch (err) {
       rowEl.classList.remove('deciding');
       rowEl.querySelectorAll('.crown-btn').forEach((b) => { b.disabled = false; });
