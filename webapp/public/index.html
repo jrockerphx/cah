@@ -104,10 +104,12 @@
      forever, not just when a new card actually landed. Now it's reserved
      for the moment a fresh black card actually gets dealt: a bigger, more
      "tossed onto the table" motion instead of a plain fade. */
-  .black-card.deal-in { animation: dealIn 0.55s cubic-bezier(.22,.85,.35,1.2) both; }
+  .black-card.deal-in { animation: dealIn 0.7s cubic-bezier(.22,.85,.35,1.3) both; }
   @keyframes dealIn {
-    0%   { opacity: 0; transform: translateY(-60px) rotate(9deg) scale(0.85); }
-    55%  { opacity: 1; transform: translateY(8px) rotate(-4deg) scale(1.04); }
+    /* Exaggerated: bigger drop, bigger spin, bigger overshoot before it
+       settles into its resting tilt. */
+    0%   { opacity: 0; transform: translateY(-110px) rotate(18deg) scale(0.7); }
+    55%  { opacity: 1; transform: translateY(16px) rotate(-8deg) scale(1.08); }
     100% { opacity: 1; transform: translateY(0) rotate(-1.6deg) scale(1); }
   }
 
@@ -144,7 +146,7 @@
        tear-down-and-rebuild-the-whole-grid approach. A transition can't
        animate a class that's already present the instant an element is
        created, only a change on an element that was already there. */
-    transition: transform 0.32s cubic-bezier(.34,1.56,.64,1), box-shadow 0.28s ease, border-color 0.2s ease;
+    transition: transform 0.34s cubic-bezier(.34,1.56,.64,1), box-shadow 0.28s ease, border-color 0.2s ease;
     border: 2px solid transparent; text-wrap: balance;
   }
   /* -42.6% is 1/3 of the card's own height expressed as a percentage of its
@@ -155,8 +157,10 @@
   .hand-grid .white-card:nth-child(n+5) { margin-top: -42.6%; z-index: 2; }
   .white-card:active { transform: scale(0.94); }
   .white-card.selected {
-    transform: translateY(-24px) scale(1.07) rotate(-2deg);
-    box-shadow: 0 20px 34px var(--shadow); border-color: var(--gold); z-index: 5;
+    /* Exaggerated per Jon's ask -- bigger lift, bigger pop, a real tilt
+       instead of a token 2deg nudge. */
+    transform: translateY(-34px) scale(1.16) rotate(-6deg);
+    box-shadow: 0 26px 40px var(--shadow); border-color: var(--gold); z-index: 5;
   }
   .white-card.disabled { opacity: 0.4; pointer-events: none; }
 
@@ -223,26 +227,34 @@
     border-color: var(--gold);
     box-shadow: 0 0 0 3px rgba(217,164,65,0.35), 0 0 26px rgba(217,164,65,0.5), 0 14px 26px var(--shadow);
   }
-  .flip-card.winner { animation: crownPulse 0.6s cubic-bezier(.34,1.56,.64,1) both; }
+  .flip-card.winner { animation: crownPulse 0.8s cubic-bezier(.34,1.56,.64,1) both; }
   @keyframes crownPulse {
+    /* Exaggerated -- bigger swing, more of a real wobble than a nudge. */
     0%   { transform: scale(1); }
-    35%  { transform: scale(1.14) rotate(-2deg); }
-    60%  { transform: scale(0.97) rotate(1deg); }
-    100% { transform: scale(1.05) rotate(0deg); }
+    30%  { transform: scale(1.3) rotate(-5deg); }
+    55%  { transform: scale(0.92) rotate(4deg); }
+    75%  { transform: scale(1.12) rotate(-2deg); }
+    100% { transform: scale(1.08) rotate(0deg); }
   }
   .flip-card.loser {
-    opacity: 0.3; transform: scale(0.9);
+    opacity: 0.25; transform: scale(0.82) rotate(-3deg);
     transition: transform 0.5s ease, opacity 0.5s ease;
   }
   .flip-card.loser .crown-btn { visibility: hidden; }
   .crown-pop {
-    position: absolute; top: -16px; left: 50%; font-size: 1.6rem; line-height: 1;
-    pointer-events: none; animation: crownDrop 0.6s cubic-bezier(.34,1.56,.64,1) 0.1s both; z-index: 6;
+    position: absolute; top: -26px; left: 50%; font-size: 2.4rem; line-height: 1;
+    pointer-events: none; animation: crownDrop 0.8s cubic-bezier(.34,1.56,.64,1) 0.1s both,
+      crownPopWiggle 1.4s ease-in-out 0.9s infinite; z-index: 6;
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
   }
   @keyframes crownDrop {
-    0%   { transform: translate(-50%, -20px) scale(0) rotate(-25deg); opacity: 0; }
-    60%  { transform: translate(-50%, 4px) scale(1.3) rotate(10deg); opacity: 1; }
-    100% { transform: translate(-50%, 0) scale(1) rotate(0deg); opacity: 1; }
+    0%   { transform: translate(-50%, -34px) scale(0) rotate(-40deg); opacity: 0; }
+    55%  { transform: translate(-50%, 8px) scale(1.5) rotate(16deg); opacity: 1; }
+    100% { transform: translate(-50%, 0) scale(1.15) rotate(0deg); opacity: 1; }
+  }
+  @keyframes crownPopWiggle {
+    0%, 100% { transform: translate(-50%, 0) scale(1.15) rotate(-6deg); }
+    50%      { transform: translate(-50%, 0) scale(1.15) rotate(6deg); }
   }
   .crown-btn {
     font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase;
@@ -252,6 +264,69 @@
   }
   .crown-btn:active { transform: scale(0.94); }
   .crown-btn[disabled] { opacity: 0.5; cursor: default; }
+
+  /* Full-screen winner broadcast (see showWinnerOverlay() in the script).
+     Every client -- not just the judge who clicked "crown winner" -- shows
+     this the moment it learns who won: the judge gets it straight from
+     POST /api/choose's response, everyone else picks it up off their next
+     4-second poll via GET /api/state's `previousWinner` field. Tap anywhere
+     to dismiss early; otherwise it clears itself after a few seconds. */
+  .winner-overlay {
+    position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; padding: 28px;
+    background: rgba(12, 11, 16, 0.88); text-align: center; cursor: pointer;
+    animation: overlayFadeIn 0.35s ease both;
+  }
+  .winner-overlay.leaving { animation: overlayFadeOut 0.35s ease both; }
+  @keyframes overlayFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes overlayFadeOut { from { opacity: 1; } to { opacity: 0; } }
+  .overlay-crown {
+    font-size: 5.6rem; line-height: 1; filter: drop-shadow(0 10px 22px rgba(0,0,0,0.6));
+    animation: overlayCrownDrop 0.9s cubic-bezier(.24,1.6,.4,1) 0.05s both,
+      overlayCrownWiggle 1.6s ease-in-out 0.95s infinite;
+  }
+  @keyframes overlayCrownDrop {
+    0%   { transform: translateY(-160px) scale(0.2) rotate(-45deg); opacity: 0; }
+    55%  { transform: translateY(22px) scale(1.3) rotate(16deg); opacity: 1; }
+    75%  { transform: translateY(-10px) scale(1.05) rotate(-7deg); }
+    100% { transform: translateY(0) scale(1) rotate(0deg); }
+  }
+  @keyframes overlayCrownWiggle {
+    0%, 100% { transform: rotate(-7deg); }
+    50%      { transform: rotate(7deg); }
+  }
+  .overlay-card {
+    width: 100%; max-width: 240px; aspect-ratio: 5 / 6.4; background: var(--ivory); color: var(--ink);
+    border-radius: 12px; padding: 18px; font-family: var(--font-card); font-weight: 800; font-size: 1.02rem;
+    line-height: 1.3; display: flex; align-items: center; justify-content: center; text-align: center;
+    box-shadow: 0 0 0 4px var(--gold), 0 0 40px rgba(217,164,65,0.65), 0 22px 40px var(--shadow);
+    animation: overlayCardIn 0.6s cubic-bezier(.24,1.6,.4,1) 0.22s both,
+      overlayCardGlow 1.4s ease-in-out 0.82s infinite;
+  }
+  @keyframes overlayCardIn {
+    0%   { opacity: 0; transform: scale(0.35) rotate(12deg) translateY(50px); }
+    100% { opacity: 1; transform: scale(1) rotate(-1.5deg) translateY(0); }
+  }
+  @keyframes overlayCardGlow {
+    0%, 100% { box-shadow: 0 0 0 4px var(--gold), 0 0 40px rgba(217,164,65,0.65), 0 22px 40px var(--shadow); }
+    50%      { box-shadow: 0 0 0 7px var(--gold), 0 0 70px rgba(217,164,65,0.95), 0 22px 40px var(--shadow); }
+  }
+  .overlay-name {
+    font-family: var(--font-display); font-style: italic; font-weight: 700; color: var(--gold);
+    font-size: 1.8rem; text-wrap: balance; animation: overlayTextIn 0.5s ease 0.45s both;
+  }
+  .overlay-insult {
+    font-family: var(--font-card); font-weight: 600; color: var(--ivory); font-size: 0.95rem;
+    max-width: 320px; text-wrap: balance; opacity: 0.92; animation: overlayTextIn 0.5s ease 0.6s both;
+  }
+  @keyframes overlayTextIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .overlay-hint {
+    font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; color: var(--muted);
+    text-transform: uppercase; margin-top: 4px; animation: overlayTextIn 0.5s ease 0.8s both;
+  }
   .waiting-note {
     font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted);
     text-align: center; letter-spacing: 0.03em; padding: 6px;
@@ -279,6 +354,9 @@
   @media (prefers-reduced-motion: reduce) {
     .black-card, .flip-inner, .flip-card, .white-card, .play-btn, .crown-btn, .crown-pop {
       transition: none !important; animation: none !important;
+    }
+    .winner-overlay, .overlay-crown, .overlay-card, .overlay-name, .overlay-insult, .overlay-hint {
+      transition: none !important; animation: none !important; opacity: 1 !important; transform: none !important;
     }
   }
 </style>
@@ -356,6 +434,103 @@
   // render() can tell "a new card was just dealt" apart from "the 4-second
   // poll fired again and nothing changed" -- see the .deal-in class below.
   let lastBlackCardTurn = null;
+  // Tracks the last round we already showed a winner celebration for, so a
+  // client doesn't replay it on every subsequent poll of the same turn --
+  // and, on first load, so a client that just opened the app doesn't replay
+  // history for a round that finished before it connected. See render()'s
+  // "initialStateLoaded" handling below.
+  let lastShownWinnerTurn = null;
+  let initialStateLoaded = false;
+
+  // Deliberately petty, not actually hateful -- same spirit as the game's
+  // own cards. Every line takes the winner's real name; one is picked at
+  // random per celebration.
+  const HORRIBLE_THINGS = [
+    '{name} definitely microwaves fish in the office break room.',
+    "{name} unplugs your charger to charge their own phone. Every time.",
+    '{name} swaps price tags at yard sales.',
+    '{name} claps when the plane lands. Every single flight.',
+    "{name} takes the last slice and just... doesn't say anything.",
+    "{name} 100% reclines their airplane seat all the way back, immediately.",
+    "{name} has 'reply all'-ed something they really shouldn't have.",
+    "{name} lets their dog do its business on your lawn and speed-walks away.",
+    '{name} eats the last cookie and puts the empty box back in the pantry.',
+    "{name} would let you walk around with spinach in your teeth all day.",
+    "{name} pretends to be asleep so they don't have to help carry the groceries in.",
+    '{name} takes credit for the group project, and nobody stops them.',
+    "{name} regifts things without checking for the original gift tag first.",
+    '{name} chews with their mouth open and dares you to say something.',
+    "{name} has never once returned a shopping cart to the corral.",
+    '{name} double-dips. Every party. Every time.',
+    "{name} goes quiet in the group chat right when it's their turn to pay.",
+    "{name} 'forgets' their wallet at dinner with suspicious consistency.",
+    "{name} watches the finale without you and says nothing about it for a week.",
+    '{name} definitely peeked at the presents before the birthday.',
+    '{name} leaves one-star reviews just to feel something.',
+    "{name} still owes somebody twenty bucks from a long time ago.",
+    '{name} talks during movies. Loudly. With opinions.',
+    "{name} says 'we should hang out sometime' and means nothing by it.",
+    '{name} screenshots the group chat and definitely could send it to the wrong one on purpose.',
+    "{name} 'accidentally' likes a three-year-old photo just to see what happens.",
+    '{name} is exactly the kind of person who wins Cards Against Humanity and feels great about it.',
+  ];
+  function randomInsult(name) {
+    const line = HORRIBLE_THINGS[Math.floor(Math.random() * HORRIBLE_THINGS.length)];
+    return line.replace('{name}', name);
+  }
+
+  // Shows the big full-screen "so-and-so won!" broadcast. Resolves once
+  // it's been dismissed (auto after a few seconds, or on tap) -- callers
+  // that need to wait for it (the judge's own crownWinner flow) can await
+  // it; callers that don't (a bystander client picking it up off a poll)
+  // can just fire it and move on.
+  function showWinnerOverlay(winner) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'winner-overlay';
+
+      const crown = document.createElement('div');
+      crown.className = 'overlay-crown';
+      crown.textContent = '👑';
+      overlay.appendChild(crown);
+
+      const card = document.createElement('div');
+      card.className = 'overlay-card';
+      card.textContent = winner.cardText || '';
+      overlay.appendChild(card);
+
+      const name = document.createElement('div');
+      name.className = 'overlay-name';
+      name.textContent = winner.name + ' wins the round!';
+      overlay.appendChild(name);
+
+      const insult = document.createElement('div');
+      insult.className = 'overlay-insult';
+      insult.textContent = randomInsult(winner.name);
+      overlay.appendChild(insult);
+
+      const hint = document.createElement('div');
+      hint.className = 'overlay-hint';
+      hint.textContent = 'tap to continue';
+      overlay.appendChild(hint);
+
+      let done = false;
+      const dismiss = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        overlay.classList.add('leaving');
+        overlay.addEventListener('animationend', () => { overlay.remove(); resolve(); }, { once: true });
+        // Safety net in case the leaving animation never fires (e.g. the
+        // element got detached some other way) -- don't hang forever.
+        setTimeout(() => { if (overlay.isConnected) overlay.remove(); resolve(); }, 500);
+      };
+      overlay.addEventListener('click', dismiss);
+      const timer = setTimeout(dismiss, 3200);
+
+      document.body.appendChild(overlay);
+    });
+  }
 
   function headers(extra) {
     const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
@@ -416,6 +591,21 @@
     if (data.status === 'waiting_for_players') {
       showMessage('Waiting on players — ' + data.players + ' joined so far. Need at least 3 (counting Rando Carlissian) to deal in.', false);
       return;
+    }
+
+    // Broadcast celebration: catches a round win for every client that
+    // DIDN'T just personally click "crown winner" (that client gets its
+    // own immediate celebration straight from crownWinner() below instead,
+    // and marks lastShownWinnerTurn itself so this doesn't double-fire for
+    // them). On the very first poll after loading the page, just record
+    // the baseline silently -- otherwise reopening the app mid-game would
+    // replay a celebration for a round that finished before you connected.
+    if (!initialStateLoaded) {
+      initialStateLoaded = true;
+      lastShownWinnerTurn = data.previousWinner ? data.previousWinner.turn : null;
+    } else if (data.previousWinner && data.previousWinner.turn !== lastShownWinnerTurn) {
+      lastShownWinnerTurn = data.previousWinner.turn;
+      showWinnerOverlay(data.previousWinner);
     }
 
     $('readout').hidden = false;
@@ -619,7 +809,17 @@
       pop.textContent = '👑';
       winnerCell.appendChild(pop);
       if (labelEl) labelEl.textContent = 'Winner crowned! Next round starting…';
-      setTimeout(poll, 1400);
+
+      // We already know who won and what they played -- it came straight
+      // back in this response -- so the judge's own client doesn't need to
+      // wait for a poll to run the same big broadcast celebration everyone
+      // else will see. Mark it shown now so the next poll (which will
+      // include this same round in previousWinner) doesn't replay it here.
+      if (data.previousWinner) lastShownWinnerTurn = data.previousWinner.turn;
+      setTimeout(async () => {
+        if (data.previousWinner) await showWinnerOverlay(data.previousWinner);
+        poll();
+      }, 500);
     } catch (err) {
       rowEl.classList.remove('deciding');
       rowEl.querySelectorAll('.crown-btn').forEach((b) => { b.disabled = false; });
