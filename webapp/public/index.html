@@ -649,11 +649,12 @@
       // Sequenced beats: crown drops + card flies in first (0 - ~1.3s),
       // THEN the card dims, the screen darkens further, and the verdict
       // (name + insult) slams in centered and slanted as the actual focal
-      // point -- held on screen for ~4s by itself before the whole thing
-      // dismisses, per Jon's ask for "make it the focal point for like 3-4
-      // seconds."
+      // point -- settled by ~2.1s, held on screen by itself for a further
+      // ~6.5s (there's enough text in the longer insults now that it needs
+      // real reading time, not just a beat) before the whole thing
+      // dismisses.
       const dimTimer = setTimeout(() => overlay.classList.add('dim-stage'), 1450);
-      const timer = setTimeout(dismiss, 6000);
+      const timer = setTimeout(dismiss, 8600);
 
       document.body.appendChild(overlay);
     });
