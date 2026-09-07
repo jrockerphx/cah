@@ -484,10 +484,26 @@ async function dealNewTurn(client, chat) {
     if (rows.length < count) throw httpError(409, 'no_more_white_cards');
     for (const row of rows) {
       excluded.push(row.id);
+      // BUG #2 (found while writing the integration test for BUG #1's fix
+      // below): this used to write `playerId === 0 ? chat.turn : null` here
+      // -- meaning every card freshly dealt to Rando (player_id 0) got
+      // inserted ALREADY marked played_on_turn = chat.turn, instead of
+      // unplayed like a real player's fresh cards. That's wrong for two
+      // reasons: (1) it hands the judge a "submission" of 9-10 cards bundled
+      // as one player instead of exactly `pick`, which is almost certainly
+      // why the judge's card grid renders broken/invisible once Rando's
+      // dealt in; (2) it means Rando's hand hits 0 unplayed at the end of
+      // EVERY single round, forcing a full fresh deal of up to 10 cards next
+      // round instead of drawing down 1-2 at a time like a real player --
+      // burning through the pack's white cards roughly 10x too fast and
+      // risking a hard `no_more_white_cards` failure mid-game. Always insert
+      // unplayed (null) here; the explicit UPDATE further down is what
+      // correctly marks exactly `pick` of Rando's unplayed cards played for
+      // the new turn, exactly mirroring a real player.
       await client.query(
         `INSERT INTO hands (player_id, chat_id, card_id, picked_on_turn, played_on_turn, seq)
          VALUES ($1, $2, $3, $4, $5, 0)`,
-        [playerId, chat.id, row.id, chat.turn, playerId === 0 ? chat.turn : null],
+        [playerId, chat.id, row.id, chat.turn, null],
       );
     }
     return rows;
@@ -521,7 +537,27 @@ async function dealNewTurn(client, chat) {
   await client.query(`UPDATE chats SET pick = $1 WHERE id = $2`, [blackCard.pick || 1, chat.id]);
 
   if (chat.rando_carlissian) {
-    const dealt = await dealWhiteCards(0, 0); // no-op if already topped up above; see loop
+    // BUG (this was the actual cause of the judge's screen hanging forever
+    // with no cards to reveal): this used to call dealWhiteCards(0, 0) --
+    // a hardcoded zero, always a no-op -- on the theory that Rando's hand
+    // was "already topped up above." It never was: the loop above only
+    // iterates `players`, i.e. getPlayers()'s real rows, and Rando has no
+    // row in the players table, ever -- it's purely the player_id = 0
+    // sentinel in `hands`. So Rando's hand was never refilled by this
+    // function, only ever drawn down. It happened to work for a round or
+    // two on whatever stash Rust's chat::reset() originally dealt it, then
+    // ran dry -- at which point this SELECT below started finding zero (or
+    // fewer than `pick`) unplayed rows, no hand ever got marked played for
+    // Rando that turn, and getAnonymizedSubmissions() in GET /api/state
+    // could never see the expected number of submitters -- revealed stays
+    // false forever, no "refresh" fixes it. Fixed by actually topping
+    // Rando back up to 10, mirroring the real-player loop above exactly.
+    const { rows: randoUnplayedCountRows } = await client.query(
+      `SELECT COUNT(*)::int AS n FROM hands WHERE player_id = 0 AND chat_id = $1 AND played_on_turn IS NULL`,
+      [chat.id],
+    );
+    await dealWhiteCards(0, 10 - randoUnplayedCountRows[0].n);
+
     const { rows: randoUnplayed } = await client.query(
       `SELECT id FROM hands WHERE player_id = 0 AND chat_id = $1 AND played_on_turn IS NULL LIMIT $2`,
       [chat.id, blackCard.pick || 1],
