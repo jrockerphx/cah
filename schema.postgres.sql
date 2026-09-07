@@ -39,7 +39,16 @@ CREATE TABLE IF NOT EXISTS cards (
     pack_id INTEGER NOT NULL REFERENCES packs (id),
     color   VARCHAR(5) NOT NULL,
     pick    INTEGER,
-    text    VARCHAR(255) NOT NULL
+    -- TEXT, not VARCHAR(255): the bundled cah-cards-full.json has at least
+    -- one card (a "Reject Pack 3" black card) that's 908 characters long.
+    -- VARCHAR(255) here made every fresh deploy crash-loop forever on
+    -- first boot -- pack::init() seeds all cards in one transaction, so
+    -- the oversized INSERT failing rolled back the whole batch, leaving
+    -- `packs` empty, which made the bot retry the exact same doomed seed
+    -- on every restart. TEXT has no length cap and no storage/performance
+    -- cost difference from VARCHAR(n) in Postgres -- there's no reason to
+    -- guess at a number here.
+    text    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS hands (
