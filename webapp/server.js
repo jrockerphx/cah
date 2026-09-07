@@ -186,6 +186,33 @@ async function getAnonymizedSubmissions(client, chat, judgeId) {
   return { byPlayer, playerIds };
 }
 
+// Finds who won the round just before this one (chat.turn - 1), if any.
+// POST /api/choose already stamps `won = true` on the winning hand row(s)
+// when it advances the turn -- this just reads that back, so no extra
+// state needs to live anywhere. Lets EVERY client (not just the judge who
+// actually clicked "crown winner") show a "so-and-so won!" celebration the
+// next time they poll, even though the pick itself happens privately
+// inside POST /api/choose with no broadcast of its own.
+async function getPreviousWinner(client, chat) {
+  if (chat.turn <= 1) return null;
+  const { rows } = await client.query(
+    `SELECT h.player_id, c.text FROM hands h
+     JOIN cards c ON c.id = h.card_id
+     WHERE h.chat_id = $1 AND h.played_on_turn = $2 AND h.won = true
+     ORDER BY h.seq ASC`,
+    [chat.id, chat.turn - 1],
+  );
+  if (!rows.length) return null;
+  const winningPlayerId = rows[0].player_id;
+  const cardText = rows.map((r) => r.text).join(' / ');
+  let name = 'Rando Carlissian';
+  if (winningPlayerId > 0) {
+    const player = await getPlayerById(client, winningPlayerId);
+    name = player ? player.name : 'Somebody';
+  }
+  return { turn: chat.turn - 1, name, cardText };
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/state?chat=<internal chats.id, NOT the Telegram group id>
 //
@@ -212,6 +239,8 @@ app.get('/api/state', requireTelegramUser, async (req, res) => {
     const judge = await findJudge(client, chat);
     if (!judge) return res.status(500).json({ error: 'no_judge_found_this_is_a_bug' });
 
+    const previousWinner = await getPreviousWinner(client, chat);
+
     // the judge's black card for this turn
     const { rows: judgeHandRows } = await client.query(
       `SELECT h.id AS hand_id, c.* FROM hands h
@@ -237,6 +266,7 @@ app.get('/api/state', requireTelegramUser, async (req, res) => {
         pick: chat.pick,
         role: 'judge',
         blackCard: blackCard && { text: blackCard.text, pick: blackCard.pick || 1 },
+        previousWinner,
         revealed,
         // only send the actual cards once every player has submitted —
         // matches play.rs's as_judge gate exactly, just returned as JSON
@@ -273,6 +303,7 @@ app.get('/api/state', requireTelegramUser, async (req, res) => {
       pick: chat.pick,
       role: 'player',
       blackCard: blackCard && { text: blackCard.text, pick: blackCard.pick || 1 },
+      previousWinner,
       alreadyPlayed: played,
       needsToPlay: Math.max(0, chat.pick - played),
       hand: unplayedHand.map((c) => ({ handId: c.hand_id, text: c.text })),
@@ -411,8 +442,18 @@ app.post('/api/choose', requireTelegramUser, async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Computed regardless of BOT_TOKEN (unlike the Telegram notify below)
+    // because the judge's OWN client needs this in the response right now,
+    // to run its own winner celebration immediately instead of waiting on
+    // the next poll -- see GET /api/state's getPreviousWinner(), which every
+    // OTHER player's client uses to catch the same celebration a few
+    // seconds later without ever having called /api/choose themselves.
+    const winnerLabel = winningPlayerId > 0
+      ? (await getPlayerById(pool, winningPlayerId))?.name || 'Somebody'
+      : 'Rando Carlissian';
+    const winningCardText = winningHands.map((h) => h.text).join(' / ');
+
     if (BOT_TOKEN) {
-      const winnerLabel = winningPlayerId > 0 ? (await getPlayerById(pool, winningPlayerId))?.name : 'Rando Carlissian';
       await sendTelegramMessage(
         chat.telegram_id,
         `Turn ${newTurn}\n\n${blackCard.text}\n\nJudge is ${newJudge.name}\n\n(previous round won by ${winnerLabel})`,
@@ -425,7 +466,12 @@ app.post('/api/choose', requireTelegramUser, async (req, res) => {
       await dmAllPlayersWebapp(pool, chat.id, 'New round started, open your hand to play');
     }
 
-    res.json({ status: 'ok', turn: newTurn, blackCard: { text: blackCard.text, pick: blackCard.pick || 1 } });
+    res.json({
+      status: 'ok',
+      turn: newTurn,
+      blackCard: { text: blackCard.text, pick: blackCard.pick || 1 },
+      previousWinner: { turn: chat.turn, name: winnerLabel, cardText: winningCardText },
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
