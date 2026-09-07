@@ -113,13 +113,20 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres/cah_bot
       BOT_TOKEN: ${BOT_TOKEN}
+      # server.js now needs this too -- /api/play and /api/choose DM players
+      # fresh "Open cards hand" links directly (see server.js's own comment
+      # by WEBAPP_URL), the same job main.rs's WEBAPP_URL already does for
+      # the Rust bot's /start and /status. Same value you already set for
+      # cah_bot; leave blank to skip those DMs (group-only notifications,
+      # like before).
+      WEBAPP_URL: ${WEBAPP_URL:-}
       # Was hardcoded to the literal string "true" before -- meaning
       # flipping this in Coolify's Environment Variables panel did
       # *nothing*, since the compose file never actually referenced that
       # variable. Wired to a real substitution now, defaulting to true
       # (locked down) when unset, so setting REQUIRE_TELEGRAM_AUTH=false in
       # Coolify's UI actually takes effect on the next redeploy.
-      REQUIRE_TELEGRAM_AUTH: ${REQUIRE_TELEGRAM_AUTH:-false}
+      REQUIRE_TELEGRAM_AUTH: ${REQUIRE_TELEGRAM_AUTH:-true}
     depends_on:
       postgres:
         condition: service_healthy
