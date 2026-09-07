@@ -77,7 +77,12 @@
   .msg.err { color: var(--bad); }
 
   .black-card {
-    position: relative; width: 100%; max-width: 320px; aspect-ratio: 5 / 4;
+    /* Was max-width 320px @ aspect-ratio 5/4 (landscape, wider than tall) --
+       on a phone that reads as a squat rectangle, not a "card." Switched to
+       the same portrait ratio the judge's flip-cards already use (5/6.6)
+       and pulled max-width in so it doesn't just get chunkier at the new
+       ratio -- now it actually looks like the same deck as everything else. */
+    position: relative; width: 100%; max-width: 280px; aspect-ratio: 5 / 6.6;
     background: var(--card-black); border-radius: 14px; padding: 22px;
     display: flex; align-items: flex-start; justify-content: flex-start;
     box-shadow: 0 18px 34px var(--shadow), 0 2px 0 rgba(255,255,255,0.03) inset;
@@ -101,20 +106,34 @@
     font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em;
     color: var(--muted); text-transform: uppercase; text-align: center;
   }
-  .hand-scroll {
-    display: flex; gap: 0; padding: 18px 26px 10px; overflow-x: auto;
-    overflow-y: visible; scroll-snap-type: x proximity;
+  /* Was a horizontally-scrolling flex row with a heavy negative-margin fan --
+     forced left/right scrolling to reach the end cards, and most of each
+     card's face was hidden under its neighbor, so you had to lift a card
+     just to read it. Replaced with a 4-column grid: everything fits the
+     screen width with no horizontal scroll, and each card is fully visible
+     side-to-side. Cards from the 5th on (i.e. row two onward) get pulled up
+     to overlap the bottom third of the row above -- a vertical fan instead
+     of a horizontal one -- purely cosmetic (deck-of-cards look) since the
+     overlapped strip is normally blank space below the card text, not text
+     itself. */
+  .hand-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    column-gap: 6px; row-gap: 0; padding: 20px 6px 14px;
   }
-  .hand-scroll::-webkit-scrollbar { height: 0; }
   .white-card {
-    flex: 0 0 auto; width: 128px; aspect-ratio: 5 / 6.4; background: var(--ivory);
-    color: var(--ink); border-radius: 10px; padding: 13px 12px; font-family: var(--font-card);
-    font-weight: 700; font-size: 0.86rem; line-height: 1.22; box-shadow: 0 10px 20px var(--shadow);
-    cursor: pointer; margin-left: -34px;
-    transition: transform 0.22s cubic-bezier(.2,.8,.3,1), box-shadow 0.22s ease, margin-left 0.22s ease;
-    scroll-snap-align: center; border: 2px solid transparent; text-wrap: balance;
+    aspect-ratio: 5 / 6.4; background: var(--ivory);
+    color: var(--ink); border-radius: 10px; padding: 9px 8px; font-family: var(--font-card);
+    font-weight: 700; font-size: 0.72rem; line-height: 1.16; box-shadow: 0 10px 20px var(--shadow);
+    cursor: pointer; overflow: hidden;
+    transition: transform 0.22s cubic-bezier(.2,.8,.3,1), box-shadow 0.22s ease;
+    border: 2px solid transparent; text-wrap: balance;
   }
-  .hand-scroll .white-card:first-child { margin-left: 0; }
+  /* -42.6% is 1/3 of the card's own height expressed as a percentage of its
+     width (margin percentages resolve against the containing block's WIDTH
+     even for margin-top) -- since the card's height is fixed at 1.28x its
+     width via aspect-ratio, this stays exactly "1/3 of the card" overlap no
+     matter how narrow the columns end up on a given phone. */
+  .hand-grid .white-card:nth-child(n+5) { margin-top: -42.6%; z-index: 2; }
   .white-card.selected {
     transform: translateY(-22px) scale(1.04); box-shadow: 0 20px 30px var(--shadow);
     border-color: var(--gold); z-index: 5;
@@ -300,7 +319,7 @@
     const url = apiUrl('/api/state');
     url.searchParams.set('chat', chatId);
     try {
-      const res = await fetch(url, { headers: headers() });
+      const res = await fetch(url, { headers: headers(), cache: 'no-store' });
       const data = await res.json();
       if (!res.ok) return showApiError(res.status, data);
       render(data);
@@ -362,8 +381,8 @@
       : 'Card(s) played — waiting on the table';
     stage.appendChild(label);
 
-    const scroll = document.createElement('div');
-    scroll.className = 'hand-scroll';
+    const grid = document.createElement('div');
+    grid.className = 'hand-grid';
     data.hand.forEach((card) => {
       const el = document.createElement('div');
       el.className = 'white-card' + (selectedHandId === card.handId ? ' selected' : '') +
@@ -376,9 +395,9 @@
         selectedHandId = selectedHandId === card.handId ? null : card.handId;
         render(data);
       });
-      scroll.appendChild(el);
+      grid.appendChild(el);
     });
-    stage.appendChild(scroll);
+    stage.appendChild(grid);
 
     const bar = document.createElement('div');
     bar.className = 'play-bar';
