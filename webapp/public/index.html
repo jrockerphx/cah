@@ -86,7 +86,7 @@
     background: var(--card-black); border-radius: 14px; padding: 22px;
     display: flex; align-items: flex-start; justify-content: flex-start;
     box-shadow: 0 18px 34px var(--shadow), 0 2px 0 rgba(255,255,255,0.03) inset;
-    transform: rotate(-1.6deg); animation: settle 0.4s ease both;
+    transform: rotate(-1.6deg);
   }
   .black-card p {
     font-family: var(--font-card); font-weight: 800; font-size: 1.28rem;
@@ -97,9 +97,18 @@
     font-size: 0.66rem; letter-spacing: 0.08em; color: var(--gold);
     border: 1px solid var(--gold); padding: 3px 7px; border-radius: 3px;
   }
-  @keyframes settle {
-    from { opacity: 0; transform: rotate(-1.6deg) translateY(10px) scale(0.97); }
-    to   { opacity: 1; transform: rotate(-1.6deg) translateY(0) scale(1); }
+  /* Only applied when JS detects the turn number actually changed (see
+     render()'s isNewTurn check) -- render() used to redraw the black card
+     from scratch on every 4s poll tick, including polls where nothing
+     changed, so this "settle" fade used to silently replay every 4 seconds
+     forever, not just when a new card actually landed. Now it's reserved
+     for the moment a fresh black card actually gets dealt: a bigger, more
+     "tossed onto the table" motion instead of a plain fade. */
+  .black-card.deal-in { animation: dealIn 0.55s cubic-bezier(.22,.85,.35,1.2) both; }
+  @keyframes dealIn {
+    0%   { opacity: 0; transform: translateY(-60px) rotate(9deg) scale(0.85); }
+    55%  { opacity: 1; transform: translateY(8px) rotate(-4deg) scale(1.04); }
+    100% { opacity: 1; transform: translateY(0) rotate(-1.6deg) scale(1); }
   }
 
   .hand-label {
@@ -125,7 +134,17 @@
     color: var(--ink); border-radius: 10px; padding: 9px 8px; font-family: var(--font-card);
     font-weight: 700; font-size: 0.72rem; line-height: 1.16; box-shadow: 0 10px 20px var(--shadow);
     cursor: pointer; overflow: hidden;
-    transition: transform 0.22s cubic-bezier(.2,.8,.3,1), box-shadow 0.22s ease;
+    /* Bouncier "back out" easing (overshoots slightly past its resting
+       transform, then settles) instead of a plain ease-out -- reads as a
+       playful pop on select and an equally playful settle back down on
+       deselect, since it's the same transition running both directions.
+       NOTE: this only animates when the class toggles on a DOM node that
+       stays alive across the change -- see selectCard() in the script,
+       which mutates the existing card elements in place instead of the old
+       tear-down-and-rebuild-the-whole-grid approach. A transition can't
+       animate a class that's already present the instant an element is
+       created, only a change on an element that was already there. */
+    transition: transform 0.32s cubic-bezier(.34,1.56,.64,1), box-shadow 0.28s ease, border-color 0.2s ease;
     border: 2px solid transparent; text-wrap: balance;
   }
   /* -42.6% is 1/3 of the card's own height expressed as a percentage of its
@@ -134,9 +153,10 @@
      width via aspect-ratio, this stays exactly "1/3 of the card" overlap no
      matter how narrow the columns end up on a given phone. */
   .hand-grid .white-card:nth-child(n+5) { margin-top: -42.6%; z-index: 2; }
+  .white-card:active { transform: scale(0.94); }
   .white-card.selected {
-    transform: translateY(-22px) scale(1.04); box-shadow: 0 20px 30px var(--shadow);
-    border-color: var(--gold); z-index: 5;
+    transform: translateY(-24px) scale(1.07) rotate(-2deg);
+    box-shadow: 0 20px 34px var(--shadow); border-color: var(--gold); z-index: 5;
   }
   .white-card.disabled { opacity: 0.4; pointer-events: none; }
 
@@ -163,7 +183,7 @@
      Chrome rounded that up to a visible sliver (clickable but textless);
      iOS Safari rounded it down to fully invisible. Same bug, two faces. */
   .judge-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 4px 2px 8px; width: 100%; }
-  .flip-card { perspective: 1000px; aspect-ratio: 5 / 6.6; }
+  .flip-card { position: relative; perspective: 1000px; aspect-ratio: 5 / 6.6; }
   .flip-inner {
     position: relative; width: 100%; height: 100%; transform-style: preserve-3d;
     transition: transform 0.55s cubic-bezier(.3,.9,.3,1);
@@ -183,17 +203,55 @@
     background: var(--ivory); color: var(--ink); transform: rotateY(180deg);
     font-family: var(--font-card); font-weight: 700; font-size: 0.84rem; line-height: 1.24;
     text-align: left; align-items: flex-start; flex-direction: column; gap: 8px;
-    cursor: pointer; border: 2px solid transparent;
+    cursor: pointer; border: 2px solid transparent; transition: border-color 0.3s ease, box-shadow 0.3s ease;
   }
+  /* Crowning a winner (see crownWinner() in the script): the picked card
+     gets a gold pulse + a crown emoji popping in from above, everyone else
+     shrinks and fades -- then after a beat the round actually advances.
+
+     IMPORTANT: the winner/loser scale+fade lives on .flip-card (the OUTER
+     wrapper), not .flip-inner (the element that actually carries the
+     rotateY(180deg) flip). Putting a scale() on the SAME element as the
+     flip's rotateY(180deg) -- even though the math shouldn't care -- made
+     Chrome flip which face's backface-visibility won, so the "loser" card
+     silently flopped back to showing its card-BACK design instead of
+     fading out its front. Confirmed by hit-testing the rendered pixels
+     (elementFromPoint), not just reading computed transforms. Keeping the
+     flip rotation and the celebration scale on two different elements
+     sidesteps the interaction entirely. */
   .flip-card.winner .flip-front {
-    border-color: var(--gold); box-shadow: 0 0 0 3px rgba(217,164,65,0.25), 0 14px 26px var(--shadow);
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(217,164,65,0.35), 0 0 26px rgba(217,164,65,0.5), 0 14px 26px var(--shadow);
   }
-  .flip-card.loser .flip-inner { opacity: 0.35; transform: rotateY(180deg) scale(0.96); }
+  .flip-card.winner { animation: crownPulse 0.6s cubic-bezier(.34,1.56,.64,1) both; }
+  @keyframes crownPulse {
+    0%   { transform: scale(1); }
+    35%  { transform: scale(1.14) rotate(-2deg); }
+    60%  { transform: scale(0.97) rotate(1deg); }
+    100% { transform: scale(1.05) rotate(0deg); }
+  }
+  .flip-card.loser {
+    opacity: 0.3; transform: scale(0.9);
+    transition: transform 0.5s ease, opacity 0.5s ease;
+  }
+  .flip-card.loser .crown-btn { visibility: hidden; }
+  .crown-pop {
+    position: absolute; top: -16px; left: 50%; font-size: 1.6rem; line-height: 1;
+    pointer-events: none; animation: crownDrop 0.6s cubic-bezier(.34,1.56,.64,1) 0.1s both; z-index: 6;
+  }
+  @keyframes crownDrop {
+    0%   { transform: translate(-50%, -20px) scale(0) rotate(-25deg); opacity: 0; }
+    60%  { transform: translate(-50%, 4px) scale(1.3) rotate(10deg); opacity: 1; }
+    100% { transform: translate(-50%, 0) scale(1) rotate(0deg); opacity: 1; }
+  }
   .crown-btn {
     font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase;
     align-self: stretch; background: var(--gold); color: var(--ink); border: none; border-radius: 6px;
     padding: 6px 8px; font-weight: 700; cursor: pointer; margin-top: auto;
+    transition: transform 0.15s ease, opacity 0.15s ease;
   }
+  .crown-btn:active { transform: scale(0.94); }
+  .crown-btn[disabled] { opacity: 0.5; cursor: default; }
   .waiting-note {
     font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted);
     text-align: center; letter-spacing: 0.03em; padding: 6px;
@@ -219,7 +277,9 @@
   }
   [hidden] { display: none !important; }
   @media (prefers-reduced-motion: reduce) {
-    .black-card, .flip-inner, .white-card, .play-btn { transition: none !important; animation: none !important; }
+    .black-card, .flip-inner, .flip-card, .white-card, .play-btn, .crown-btn, .crown-pop {
+      transition: none !important; animation: none !important;
+    }
   }
 </style>
 </head>
@@ -292,6 +352,10 @@
 
   let selectedHandId = null;
   let pollTimer = null;
+  // Tracks the last turn number we actually painted a black card for, so
+  // render() can tell "a new card was just dealt" apart from "the 4-second
+  // poll fired again and nothing changed" -- see the .deal-in class below.
+  let lastBlackCardTurn = null;
 
   function headers(extra) {
     const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
@@ -362,8 +426,16 @@
     const stage = $('stage');
     stage.innerHTML = '';
 
+    // Only play the "dealt onto the table" entrance when a NEW black card
+    // actually showed up (turn number changed since we last painted one).
+    // Without this check every 4-second poll tick -- even ones where
+    // nothing changed -- tore the stage down and rebuilt it, replaying the
+    // entrance animation forever instead of once per real new card.
+    const isNewTurn = data.turn !== lastBlackCardTurn;
+    lastBlackCardTurn = data.turn;
+
     const black = document.createElement('div');
-    black.className = 'black-card';
+    black.className = 'black-card' + (isNewTurn ? ' deal-in' : '');
     black.innerHTML =
       '<p>' + escapeHtml(data.blackCard ? data.blackCard.text : '…') + '</p>' +
       '<span class="pick-tag">PICK ' + (data.blackCard ? data.blackCard.pick : 1) + '</span>';
@@ -389,12 +461,16 @@
         (data.needsToPlay <= 0 ? ' disabled' : '');
       el.textContent = card.text;
       el.tabIndex = 0;
+      el.dataset.handId = String(card.handId);
       el.setAttribute('role', 'button');
-      el.addEventListener('click', () => {
-        if (data.needsToPlay <= 0) return;
-        selectedHandId = selectedHandId === card.handId ? null : card.handId;
-        render(data);
-      });
+      // NOTE: this deliberately does NOT call render(data) -- it toggles
+      // the 'selected' class on the existing elements in place instead, so
+      // the CSS transition on .white-card actually has something to
+      // animate FROM. Tearing the whole grid down and rebuilding it (the
+      // old approach) meant every card was always brand new the instant it
+      // got the 'selected' class, so there was nothing to transition from
+      // and the "pop" never played -- it just snapped.
+      el.addEventListener('click', () => selectCard(card.handId, data));
       grid.appendChild(el);
     });
     stage.appendChild(grid);
@@ -403,20 +479,45 @@
     bar.className = 'play-bar';
     const btn = document.createElement('button');
     btn.className = 'play-btn';
-    btn.disabled = selectedHandId === null || data.needsToPlay <= 0;
-    if (!btn.disabled) {
-      const card = data.hand.find((c) => c.handId === selectedHandId);
-      const label = card ? card.text : '';
-      btn.textContent = 'Play "' + (label.length > 26 ? label.slice(0, 26) + '…' : label) + '"';
-    }
+    btn.id = 'playBtn';
     btn.addEventListener('click', () => playCard(selectedHandId));
     bar.appendChild(btn);
     stage.appendChild(bar);
+    updatePlayBtn(data);
 
     const note = document.createElement('div');
     note.className = 'played-note';
     note.textContent = data.needsToPlay <= 0 ? 'Waiting on the rest of the table…' : '';
     stage.appendChild(note);
+  }
+
+  // Toggles selection on the actual DOM elements (rather than re-rendering
+  // the whole hand) so the .white-card select/deselect transition can play.
+  function selectCard(handId, data) {
+    if (data.needsToPlay <= 0) return;
+    const grid = document.querySelector('.hand-grid');
+    if (!grid) return;
+    const prev = grid.querySelector('.white-card.selected');
+    if (prev) prev.classList.remove('selected');
+    selectedHandId = selectedHandId === handId ? null : handId;
+    if (selectedHandId !== null) {
+      const el = grid.querySelector('[data-hand-id="' + selectedHandId + '"]');
+      if (el) el.classList.add('selected');
+    }
+    updatePlayBtn(data);
+  }
+
+  function updatePlayBtn(data) {
+    const btn = $('playBtn');
+    if (!btn) return;
+    btn.disabled = selectedHandId === null || data.needsToPlay <= 0;
+    if (!btn.disabled) {
+      const card = data.hand.find((c) => c.handId === selectedHandId);
+      const label = card ? card.text : '';
+      btn.textContent = 'Play "' + (label.length > 26 ? label.slice(0, 26) + '…' : label) + '"';
+    } else {
+      btn.textContent = '';
+    }
   }
 
   function renderJudge(stage, data) {
@@ -457,7 +558,7 @@
       crown.textContent = 'Crown winner';
       crown.addEventListener('click', (e) => {
         e.stopPropagation();
-        chooseWinner(sub.submissionToken);
+        crownWinner(sub.submissionToken, cell, row, label);
       });
       front.appendChild(crown);
 
@@ -485,16 +586,43 @@
     }
   }
 
-  async function chooseWinner(submissionToken) {
+  // Commits the pick to the server first (so we only celebrate a pick that
+  // actually succeeded), then plays a short winner/loser animation on the
+  // cards already on screen, THEN swaps in the new round -- instead of the
+  // old behavior of jumping straight to the next round with no moment for
+  // the winning card at all.
+  async function crownWinner(submissionToken, winnerCell, rowEl, labelEl) {
+    if (rowEl.classList.contains('deciding')) return; // already crowning one, ignore extra taps
+    rowEl.classList.add('deciding');
+    rowEl.querySelectorAll('.crown-btn').forEach((b) => { b.disabled = true; });
     try {
       const res = await fetch(apiUrl('/api/choose'), {
         method: 'POST', headers: headers(),
         body: JSON.stringify({ chat: chatId, submissionToken }),
       });
       const data = await res.json();
-      if (!res.ok) return showApiError(res.status, data);
-      fetchState();
+      if (!res.ok) {
+        rowEl.classList.remove('deciding');
+        rowEl.querySelectorAll('.crown-btn').forEach((b) => { b.disabled = false; });
+        return showApiError(res.status, data);
+      }
+
+      // Pause the poll timer so it can't yank the celebration away
+      // mid-animation, then resume (via poll(), not fetchState()) once it's
+      // done -- poll() both fetches immediately and resets the interval.
+      clearInterval(pollTimer);
+      rowEl.querySelectorAll('.flip-card').forEach((c) => {
+        c.classList.add(c === winnerCell ? 'winner' : 'loser');
+      });
+      const pop = document.createElement('span');
+      pop.className = 'crown-pop';
+      pop.textContent = '👑';
+      winnerCell.appendChild(pop);
+      if (labelEl) labelEl.textContent = 'Winner crowned! Next round starting…';
+      setTimeout(poll, 1400);
     } catch (err) {
+      rowEl.classList.remove('deciding');
+      rowEl.querySelectorAll('.crown-btn').forEach((b) => { b.disabled = false; });
       showMessage('Choosing a winner failed — ' + err.message, true);
     }
   }
