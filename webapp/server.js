@@ -20,6 +20,13 @@ const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3001;
 const BOT_TOKEN = process.env.BOT_TOKEN; // same token the Rust bot uses
+// Same var the Rust bot reads to build its own DM buttons (main.rs). Needed
+// here too: /api/play and /api/choose advance the game from INSIDE the Mini
+// App, so unlike the Rust bot's command handlers they have no incoming
+// message to reply to -- they have to build a fresh "Open cards hand" link
+// themselves to DM the next player(s), the same way bot/parser/mod.rs's
+// dm_all_players_webapp / dm_player_webapp do on the Rust side.
+const WEBAPP_URL = process.env.WEBAPP_URL || '';
 const DATABASE_URL =
   process.env.DATABASE_URL || 'postgres://postgres:postgres@postgres/cah_bot';
 // Set to "true" once you've wired real Telegram WebApp auth end to end.
@@ -30,6 +37,17 @@ const REQUIRE_TELEGRAM_AUTH = process.env.REQUIRE_TELEGRAM_AUTH === 'true';
 const pool = new Pool({ connectionString: DATABASE_URL });
 const app = express();
 app.use(express.json());
+// GET /api/state is polled every 4s with an IDENTICAL url each time (same
+// chat, same query string) while a game is in progress. That's exactly the
+// shape of request a browser/WebView HTTP cache is most tempted to reuse
+// instead of re-fetching -- and this project has already been bitten once
+// this session by Telegram's WebView caching a Mini App response it had no
+// business caching. Belt-and-suspenders: tell every client outright never
+// to cache these, on top of the client also passing cache: 'no-store'.
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
 // The actual flip-card frontend (public/index.html), wired to the real
 // /api/* endpoints below instead of the earlier mock-data-only prototype.
 // This is also exactly what WEBAPP_URL should point at once you're ready
@@ -321,6 +339,14 @@ app.post('/api/play', requireTelegramUser, async (req, res) => {
       await sendTelegramMessage(
         chat.telegram_id,
         `All players have chosen their card${chat.pick > 1 ? 's' : ''}, ${judge.name} can pick a winner in the game`,
+        groupFallbackMarkup(chat.id),
+      );
+      // The judge is the only one with anything to do now -- DM just them a
+      // fresh Mini App link (mirrors choose.rs::as_player's dm_player_webapp).
+      await dmWebAppButton(
+        judge.telegram_id,
+        chat.id,
+        'All players have submitted, open the app to pick the winner',
       );
     }
 
@@ -390,7 +416,13 @@ app.post('/api/choose', requireTelegramUser, async (req, res) => {
       await sendTelegramMessage(
         chat.telegram_id,
         `Turn ${newTurn}\n\n${blackCard.text}\n\nJudge is ${newJudge.name}\n\n(previous round won by ${winnerLabel})`,
+        groupFallbackMarkup(chat.id),
       );
+      // New round -- DM everyone a fresh Mini App link (mirrors
+      // bot/parser/mod.rs's dm_all_players_webapp usage in choose.rs::as_judge).
+      // Without this, nobody but whoever already had a tab open and polling
+      // ever found out the round advanced.
+      await dmAllPlayersWebapp(pool, chat.id, 'New round started, open your hand to play');
     }
 
     res.json({ status: 'ok', turn: newTurn, blackCard: { text: blackCard.text, pick: blackCard.pick || 1 } });
@@ -505,16 +537,71 @@ async function dealNewTurn(client, chat) {
   return { blackCard, newJudge };
 }
 
-async function sendTelegramMessage(telegramChatId, text) {
+async function sendTelegramMessage(telegramChatId, text, replyMarkup) {
   try {
+    const body = { chat_id: telegramChatId, text };
+    if (replyMarkup) body.reply_markup = replyMarkup;
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: telegramChatId, text }),
+      body: JSON.stringify(body),
     });
   } catch (err) {
     console.error('Telegram notify failed (non-fatal):', err.message);
   }
+}
+
+// Same switch_inline_query_current_chat button bot/parser/mod.rs's
+// play_button() attaches to every group message the Rust bot sends -- see
+// that function's own comment for why a GROUP message can never carry a
+// web_app button. Attaching it here too means anyone whose DM hasn't landed
+// yet (they've never opened a private chat with the bot) still has a way
+// into the old inline-query flow instead of being stuck with nothing.
+function groupFallbackMarkup(chatId) {
+  return {
+    inline_keyboard: [[{ text: 'Open cards hand', switch_inline_query_current_chat: String(chatId) }]],
+  };
+}
+
+// DMs one player the real Mini App button -- mirrors bot/parser/mod.rs's
+// dm_webapp_button. This (and dmAllPlayersWebapp below) is what was missing
+// here: /api/play and /api/choose advance the game from INSIDE the Mini App
+// itself, so unlike the Rust bot's command handlers there's no incoming
+// Telegram message to reply to -- nothing was ever telling the NEXT
+// player(s) a new round/turn even started unless their tab happened to
+// already be open and polling. Failures are swallowed on purpose: the usual
+// cause is "Forbidden: bot can't initiate conversation with a user" (they've
+// never DM'd the bot), which isn't fatal -- the group message's fallback
+// button above still gets them into the old inline flow.
+async function dmWebAppButton(telegramId, chatId, text) {
+  if (!WEBAPP_URL || !BOT_TOKEN) return;
+  const sep = WEBAPP_URL.includes('?') ? '&' : '?';
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: telegramId,
+        text,
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Open cards hand', web_app: { url: `${WEBAPP_URL}${sep}chat=${chatId}` } }]],
+        },
+      }),
+    });
+  } catch (err) {
+    console.error(`Couldn't DM player ${telegramId} their webapp hand link (non-fatal):`, err.message);
+  }
+}
+
+// DMs every player in the chat a fresh Mini App link -- mirrors
+// bot/parser/mod.rs's dm_all_players_webapp. Used at the same moment the
+// Rust bot uses it: right when a new round actually starts, since the
+// webapp itself works out judge-vs-player from who's asking (GET
+// /api/state), so one identical link works for everyone.
+async function dmAllPlayersWebapp(client, chatId, text) {
+  if (!WEBAPP_URL || !BOT_TOKEN) return;
+  const players = await getPlayers(client, chatId);
+  await Promise.all(players.map((p) => dmWebAppButton(p.telegram_id, chatId, text)));
 }
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
