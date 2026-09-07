@@ -279,8 +279,12 @@
     align-items: center; justify-content: center; gap: 14px; padding: 28px;
     background: rgba(12, 11, 16, 0.88); text-align: center; cursor: pointer;
     animation: overlayFadeIn 0.5s ease both;
+    /* The bg darkens further once .dim-stage lands (see showWinnerOverlay) --
+       this is what lets the card behind the verdict text actually recede. */
+    transition: background 0.6s ease;
   }
   .winner-overlay.leaving { animation: overlayFadeOut 0.5s ease both; }
+  .winner-overlay.dim-stage { background: rgba(4, 3, 6, 0.97); }
   @keyframes overlayFadeIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes overlayFadeOut { from { opacity: 1; } to { opacity: 0; } }
   /* Slowed down + exaggerated further per Jon's ask -- a longer, bigger
@@ -291,6 +295,7 @@
     font-size: 5.6rem; line-height: 1; filter: drop-shadow(0 10px 22px rgba(0,0,0,0.6));
     animation: overlayCrownDrop 1.3s cubic-bezier(.22,1.7,.36,1) 0.05s both,
       overlayCrownWiggle 2.2s ease-in-out 1.35s infinite;
+    transition: opacity 0.6s ease;
   }
   @keyframes overlayCrownDrop {
     0%   { transform: translateY(-220px) scale(0.15) rotate(-60deg); opacity: 0; }
@@ -302,6 +307,12 @@
     0%, 100% { transform: rotate(-10deg); }
     50%      { transform: rotate(10deg); }
   }
+  /* Once the crown lands and .dim-stage is added (see showWinnerOverlay),
+     the crown backs off -- it stops wiggling and fades down -- so it
+     doesn't compete with the verdict text for attention. */
+  .winner-overlay.dim-stage .overlay-crown {
+    opacity: 0.35; animation-play-state: paused;
+  }
   .overlay-card {
     width: 100%; max-width: 240px; aspect-ratio: 5 / 6.4; background: var(--ivory); color: var(--ink);
     border-radius: 12px; padding: 18px; font-family: var(--font-card); font-weight: 800; font-size: 1.02rem;
@@ -309,6 +320,7 @@
     box-shadow: 0 0 0 4px var(--gold), 0 0 40px rgba(217,164,65,0.65), 0 22px 40px var(--shadow);
     animation: overlayCardIn 0.9s cubic-bezier(.22,1.7,.36,1) 0.3s both,
       overlayCardGlow 1.9s ease-in-out 1.2s infinite;
+    transform: scale(1) rotate(-1.5deg); transition: filter 0.6s ease, transform 0.6s ease;
   }
   @keyframes overlayCardIn {
     0%   { opacity: 0; transform: scale(0.25) rotate(18deg) translateY(70px); }
@@ -318,21 +330,56 @@
     0%, 100% { box-shadow: 0 0 0 4px var(--gold), 0 0 40px rgba(217,164,65,0.65), 0 22px 40px var(--shadow); }
     50%      { box-shadow: 0 0 0 9px var(--gold), 0 0 90px rgba(217,164,65,1), 0 22px 40px var(--shadow); }
   }
+  /* The dim: once the crown's on, the card itself gets shoved into the
+     background -- animation killed outright (so the glow-pulse stops dead
+     instead of fighting the filter), shrunk and darkened hard enough that
+     its own printed text stops competing for reading attention. This is
+     what makes the verdict layer below read as the actual focal point
+     instead of one more thing sharing the screen with a glowing card. */
+  .winner-overlay.dim-stage .overlay-card {
+    animation: none; filter: brightness(0.14) saturate(0.3) blur(0.5px);
+    transform: scale(0.82) rotate(-1.5deg);
+    box-shadow: 0 0 0 4px rgba(217,164,65,0.18), 0 14px 26px var(--shadow);
+  }
+  /* The verdict: name + insult, lifted out of the normal flow and slammed
+     down centered over the whole screen, at a permanent slant -- a stamped
+     verdict, not a caption under the card. This is the actual "focal
+     point" beat Jon asked for; everything else on screen exists to set it
+     up and then get out of its way. The soft radial scrim behind the text
+     is what keeps it legible over the dimmed card sitting right behind it. */
+  .overlay-verdict {
+    position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; padding: 36px;
+    text-align: center; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(4,3,6,0.85) 0%, rgba(4,3,6,0.65) 55%, rgba(4,3,6,0) 78%);
+  }
+  .winner-overlay.dim-stage .overlay-verdict {
+    animation: verdictSlam 0.65s cubic-bezier(.19,1.55,.28,1) both;
+  }
+  @keyframes verdictSlam {
+    0%   { opacity: 0; transform: scale(2.4) rotate(-2deg); }
+    55%  { opacity: 1; transform: scale(0.9) rotate(-8deg); }
+    78%  { transform: scale(1.06) rotate(-4deg); }
+    100% { opacity: 1; transform: scale(1) rotate(-6deg); }
+  }
   .overlay-name {
     font-family: var(--font-display); font-style: italic; font-weight: 700; color: var(--gold);
-    font-size: 1.8rem; text-wrap: balance; animation: overlayTextIn 0.7s ease 0.75s both;
+    font-size: 2.15rem; line-height: 1.15; text-wrap: balance;
+    text-shadow: 0 8px 30px rgba(0,0,0,0.9);
   }
   .overlay-insult {
-    font-family: var(--font-card); font-weight: 600; color: var(--ivory); font-size: 0.95rem;
-    max-width: 320px; text-wrap: balance; opacity: 0.92; animation: overlayTextIn 0.7s ease 1s both;
+    font-family: var(--font-card); font-weight: 700; color: var(--ivory); font-size: 1.18rem;
+    line-height: 1.35; max-width: 320px; text-wrap: balance;
+    text-shadow: 0 6px 24px rgba(0,0,0,0.9);
+  }
+  .overlay-hint {
+    position: absolute; left: 0; right: 0; bottom: 26px; z-index: 7;
+    font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; color: var(--muted);
+    text-transform: uppercase; animation: overlayTextIn 0.7s ease 1.25s both;
   }
   @keyframes overlayTextIn {
     from { opacity: 0; transform: translateY(18px); }
     to   { opacity: 1; transform: translateY(0); }
-  }
-  .overlay-hint {
-    font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; color: var(--muted);
-    text-transform: uppercase; margin-top: 4px; animation: overlayTextIn 0.7s ease 1.25s both;
   }
   .waiting-note {
     font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted);
@@ -362,9 +409,10 @@
     .black-card, .flip-inner, .flip-card, .white-card, .play-btn, .crown-btn, .crown-pop {
       transition: none !important; animation: none !important;
     }
-    .winner-overlay, .overlay-crown, .overlay-card, .overlay-name, .overlay-insult, .overlay-hint {
+    .winner-overlay, .overlay-crown, .overlay-card, .overlay-verdict, .overlay-name, .overlay-insult, .overlay-hint {
       transition: none !important; animation: none !important; opacity: 1 !important; transform: none !important;
     }
+    .winner-overlay.dim-stage .overlay-card { filter: none !important; }
   }
 </style>
 </head>
@@ -480,6 +528,61 @@
     '{name} screenshots the group chat and definitely could send it to the wrong one on purpose.',
     "{name} 'accidentally' likes a three-year-old photo just to see what happens.",
     '{name} is exactly the kind of person who wins Cards Against Humanity and feels great about it.',
+    // Darker batch -- same "absurd indictment of someone's character" spirit
+    // as the game's own cards, just turned up. Kept to adult territory on
+    // purpose: crime, death, cults, addiction, betrayal. Nothing here
+    // involves minors in any way -- that line doesn't move, no matter how
+    // dark the rest of this gets.
+    '{name} definitely has a burner phone for reasons nobody wants explained.',
+    "{name} knows exactly how long a body takes to fully decompose in a bathtub, and won't say why.",
+    '{name} has a "day drinking" tab that predates most of their relationships.',
+    '{name} cried at the will reading, but only because they got less than the dog.',
+    "{name} has an OnlyFans they're fairly sure nobody in this group chat has found yet.",
+    '{name} once faked a family emergency to get out of a Tuesday.',
+    '{name} has definitely Googled "how to disappear and start over."',
+    "{name} tells people they're 'spiritual' to get out of paying for things.",
+    "{name} has a spreadsheet ranking their friends by usefulness. You're not top five.",
+    '{name} let a cult recruit them for the free snacks and never quite left.',
+    '{name} still owes an apology to at least one ex-spouse and several former coworkers.',
+    '{name} has strong, detailed opinions on how to get away with tax fraud.',
+    '{name} would absolutely sell your kidney on the black market if the exchange rate was right.',
+    '{name} takes a suspiciously long "grief nap" after every funeral that isn\'t actually about grief.',
+    '{name} once let a whole Ponzi scheme keep running because the returns were, admittedly, incredible.',
+    "{name} has a burial plot picked out next to someone they haven't told yet.",
+    '{name} has thoughts about body disposal that go well past "podcast fan."',
+    '{name} has never once felt bad about ghosting someone mid-crisis.',
+    "{name} keeps a 'just in case' fake passport. Nobody's asked why.",
+    '{name} scammed a scammer once and considers it the high point of their year.',
+    '{name} would 100% let a family member take the fall for something they did.',
+    '{name} finds funerals a great networking opportunity.',
+    '{name} got a whole department reorganized out of spite and called it "just how it worked out."',
+    "{name} has a burner identity for online arguments about things they don't even believe.",
+    '{name} thinks about arson more than is medically advisable.',
+    '{name} keeps a list of enemies with more names on it than the guest list has friends.',
+    '{name} has definitely lied under oath, with a smile, and slept fine that night.',
+    '{name} would trade you for a slightly better seat on the plane without blinking.',
+    '{name} has strong feelings about which relative would be easiest to write out of the will.',
+    '{name} was banned from a cruise line and has never once explained why.',
+    '{name} still hasn\'t returned the ashes they were "just holding onto" for a friend.',
+    '{name} let an entire wedding think the open bar was still open, for the chaos of it.',
+    '{name} has a personal policy that no funeral is too soon to start dating again.',
+    '{name} has read enough about untraceable poisons to make a toxicologist nervous.',
+    '{name} has a burner alibi ready for any night of the week, just in case.',
+    '{name} talked at least one elderly relative into changing their will out of pure charm.',
+    '{name} thinks "it was just a prank" covers a surprising amount of felony-adjacent behavior.',
+    '{name} keeps a shrine to an ex they claim, loudly and often, to hate.',
+    '{name} would let you take the blame in a group project, a marriage, and a minor felony.',
+    '{name} has personally been the reason a support group needed a new support group.',
+    '{name} keeps receipts on everyone, for reasons that are never, ever good.',
+    '{name} once had a "business trip" that was not, in any legal sense, a business trip.',
+    '{name} talked their way out of a paternity test on pure charisma alone.',
+    '{name} has strong, unsettling opinions about which relative "had it coming."',
+    '{name} has practiced a eulogy for someone who is still very much alive.',
+    '{name} would sell out this entire group chat for a marginally better parking spot.',
+    '{name} has an exit strategy for this friendship they have never once mentioned out loud.',
+    '{name} got a restraining order and still, to this day, thinks it was a misunderstanding.',
+    '{name} has genuinely mapped out which cult would take them, as a backup plan.',
+    '{name} has a "no bodies, no crime" T-shirt they only wear ironically. Probably.',
   ];
   function randomInsult(name) {
     const line = HORRIBLE_THINGS[Math.floor(Math.random() * HORRIBLE_THINGS.length)];
@@ -506,15 +609,23 @@
       card.textContent = winner.cardText || '';
       overlay.appendChild(card);
 
+      // Name + insult live in their own layer, absolutely centered over
+      // everything else, so they can be slammed in as ONE focal unit once
+      // the dim hits -- see .overlay-verdict / verdictSlam above.
+      const verdict = document.createElement('div');
+      verdict.className = 'overlay-verdict';
+
       const name = document.createElement('div');
       name.className = 'overlay-name';
       name.textContent = winner.name + ' wins the round!';
-      overlay.appendChild(name);
+      verdict.appendChild(name);
 
       const insult = document.createElement('div');
       insult.className = 'overlay-insult';
       insult.textContent = randomInsult(winner.name);
-      overlay.appendChild(insult);
+      verdict.appendChild(insult);
+
+      overlay.appendChild(verdict);
 
       const hint = document.createElement('div');
       hint.className = 'overlay-hint';
@@ -525,6 +636,7 @@
       const dismiss = () => {
         if (done) return;
         done = true;
+        clearTimeout(dimTimer);
         clearTimeout(timer);
         overlay.classList.add('leaving');
         overlay.addEventListener('animationend', () => { overlay.remove(); resolve(); }, { once: true });
@@ -533,7 +645,15 @@
         setTimeout(() => { if (overlay.isConnected) overlay.remove(); resolve(); }, 500);
       };
       overlay.addEventListener('click', dismiss);
-      const timer = setTimeout(dismiss, 5500);
+
+      // Sequenced beats: crown drops + card flies in first (0 - ~1.3s),
+      // THEN the card dims, the screen darkens further, and the verdict
+      // (name + insult) slams in centered and slanted as the actual focal
+      // point -- held on screen for ~4s by itself before the whole thing
+      // dismisses, per Jon's ask for "make it the focal point for like 3-4
+      // seconds."
+      const dimTimer = setTimeout(() => overlay.classList.add('dim-stage'), 1450);
+      const timer = setTimeout(dismiss, 6000);
 
       document.body.appendChild(overlay);
     });
